@@ -1,0 +1,4 @@
+/target
+
+# Local-machine-only workaround for a non-ASCII checkout path (see README).
+/.cargo/config.toml
