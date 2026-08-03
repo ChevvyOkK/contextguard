@@ -3,7 +3,9 @@ use std::collections::HashMap;
 use owo_colors::OwoColorize;
 
 use crate::claude_md::ClaudeMdReport;
+use crate::i18n::{self, Lang};
 use crate::pricing::PricingTable;
+use crate::savings::SavingsReport;
 use crate::session::{SessionStats, Usage};
 
 pub struct Aggregate {
@@ -47,34 +49,45 @@ fn cache_efficiency(usage: &Usage) -> f64 {
     usage.cache_read_input_tokens as f64 / total_input as f64 * 100.0
 }
 
-pub fn print_report(agg: &Aggregate, claude_md: Option<&ClaudeMdReport>) {
-    println!("{}", "ContextGuard — аудит использования Claude Code".bold());
+pub fn print_report(agg: &Aggregate, claude_md: Option<&ClaudeMdReport>, savings: &SavingsReport, lang: Lang) {
+    println!("{}", i18n::report_title(lang).bold());
     println!();
 
-    println!("Сессий проанализировано: {}", agg.sessions.to_string().bold());
+    if savings.interventions > 0 {
+        println!("{}", i18n::plugin_savings_header(lang).bold().cyan());
+        println!("{}", i18n::plugin_savings_line(lang, savings.interventions, &format_num(savings.tokens_saved_estimate)));
+        println!();
+    }
+
+    println!("{} {}", i18n::sessions_analyzed(lang), agg.sessions.to_string().bold());
     println!(
-        "Токены — входящие: {} | кэш-запись: {} | кэш-чтение: {} | исходящие: {}",
-        format_num(agg.usage.input_tokens),
-        format_num(agg.usage.cache_creation_input_tokens),
-        format_num(agg.usage.cache_read_input_tokens),
-        format_num(agg.usage.output_tokens),
+        "{}",
+        i18n::tokens_line(
+            lang,
+            &format_num(agg.usage.input_tokens),
+            &format_num(agg.usage.cache_creation_input_tokens),
+            &format_num(agg.usage.cache_read_input_tokens),
+            &format_num(agg.usage.output_tokens),
+        )
     );
-    println!("Оценка стоимости: {}", format!("${:.2}", agg.cost_usd).bold().green());
+    println!("{} {}", i18n::cost_estimate_label(lang), format!("${:.2}", agg.cost_usd).bold().green());
 
     let efficiency = cache_efficiency(&agg.usage);
     let efficiency_str = format!("{efficiency:.0}%");
     if efficiency < 50.0 {
         println!(
-            "Эффективность кэша: {} — меньше половины входящих токенов переиспользуются из кэша, это дорого",
-            efficiency_str.yellow()
+            "{} {} — {}",
+            i18n::cache_efficiency_label(lang),
+            efficiency_str.yellow(),
+            i18n::cache_efficiency_warning(lang)
         );
     } else {
-        println!("Эффективность кэша: {}", efficiency_str.green());
+        println!("{} {}", i18n::cache_efficiency_label(lang), efficiency_str.green());
     }
 
     if agg.top_sessions.len() > 1 {
         println!();
-        println!("{}", "Самые дорогие сессии:".bold());
+        println!("{}", i18n::top_sessions_header(lang).bold());
         for (id, cost) in agg.top_sessions.iter().take(5) {
             println!("  {}  {}", format!("${cost:.2}").bold(), id.dimmed());
         }
@@ -82,7 +95,7 @@ pub fn print_report(agg: &Aggregate, claude_md: Option<&ClaudeMdReport>) {
 
     if !agg.tool_calls.is_empty() {
         println!();
-        println!("{}", "Инструменты по частоте вызова:".bold());
+        println!("{}", i18n::tools_header(lang).bold());
         let mut sorted: Vec<_> = agg.tool_calls.iter().collect();
         sorted.sort_by(|a, b| b.1.cmp(a.1));
         for (name, count) in sorted.iter().take(10) {
@@ -92,53 +105,41 @@ pub fn print_report(agg: &Aggregate, claude_md: Option<&ClaudeMdReport>) {
 
     if let Some(report) = claude_md {
         println!();
-        println!("{}", "CLAUDE.md:".bold());
-        println!("  Путь: {}", report.path);
+        println!("{}", i18n::claude_md_header(lang).bold());
+        println!("{} {}", i18n::claude_md_path_label(lang), report.path);
         println!(
-            "  Длина: {} строк (~{} токенов){}",
-            report.line_count,
-            report.approx_tokens,
+            "{}{}",
+            i18n::claude_md_length_line(lang, report.line_count, report.approx_tokens),
             if report.over_recommended {
-                format!(
-                    " {}",
-                    format!("— больше рекомендуемых {}", crate::claude_md::RECOMMENDED_MAX_LINES).yellow()
-                )
+                format!(" {}", i18n::claude_md_over_recommended(lang, crate::claude_md::RECOMMENDED_MAX_LINES).yellow())
             } else {
                 String::new()
             }
         );
         if !report.generic_lines.is_empty() {
-            println!(
-                "  {} строк выглядят как общие фразы, которые модель и так знает:",
-                report.generic_lines.len()
-            );
+            println!("{}", i18n::claude_md_generic_lines_intro(lang, report.generic_lines.len()));
             for (line_no, text) in report.generic_lines.iter().take(5) {
-                println!("    {}: {}", format!("строка {line_no}").dimmed(), text);
+                println!("    {}: {}", i18n::claude_md_line_label(lang, *line_no).dimmed(), text);
             }
         }
     }
 
     println!();
-    println!("{}", "Что можно улучшить:".bold());
+    println!("{}", i18n::suggestions_header(lang).bold());
     let mut suggestions = Vec::new();
     if efficiency < 50.0 {
-        suggestions.push(
-            "Низкая эффективность кэша — держите стабильный контент (CLAUDE.md, системные инструкции) в начале запроса, а изменчивый — в конце, чтобы кэш переиспользовался чаще".to_string(),
-        );
+        suggestions.push(i18n::suggestion_cache_efficiency(lang).to_string());
     }
     if let Some(report) = claude_md {
         if report.over_recommended {
-            suggestions.push(format!(
-                "CLAUDE.md длиннее {} строк — уберите общие советы, оставьте только специфичное для проекта",
-                crate::claude_md::RECOMMENDED_MAX_LINES
-            ));
+            suggestions.push(i18n::suggestion_claude_md_length(lang, crate::claude_md::RECOMMENDED_MAX_LINES));
         }
         if !report.generic_lines.is_empty() {
-            suggestions.push("Уберите общие фразы из CLAUDE.md — модель и так это умеет, это просто трата токенов на каждой сессии".to_string());
+            suggestions.push(i18n::suggestion_claude_md_generic(lang).to_string());
         }
     }
     if suggestions.is_empty() {
-        println!("  Явных проблем не найдено — выглядит эффективно.");
+        println!("  {}", i18n::no_issues_found(lang));
     } else {
         for s in &suggestions {
             println!("  {} {s}", "—".cyan());

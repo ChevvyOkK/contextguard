@@ -1,5 +1,7 @@
 use std::path::Path;
 
+use crate::i18n::{self, Lang};
+
 pub const RECOMMENDED_MAX_LINES: usize = 200;
 
 /// Generic phrases that restate things the model already knows how to do
@@ -33,9 +35,9 @@ fn approx_token_count(text: &str) -> usize {
     (text.chars().count() as f64 / 4.0).ceil() as usize
 }
 
-pub fn analyze(path: &Path) -> Result<ClaudeMdReport, String> {
-    let content =
-        std::fs::read_to_string(path).map_err(|e| format!("не удалось прочитать {path:?}: {e}"))?;
+pub fn analyze(path: &Path, lang: Lang) -> Result<ClaudeMdReport, String> {
+    let content = std::fs::read_to_string(path)
+        .map_err(|e| i18n::err_read_file(lang, &format!("{path:?}"), &e.to_string()))?;
 
     analyze_content(&path.display().to_string(), &content)
 }

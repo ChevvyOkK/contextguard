@@ -5,6 +5,8 @@ use std::path::Path;
 
 use serde::Deserialize;
 
+use crate::i18n::{self, Lang};
+
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Usage {
     pub input_tokens: u64,
@@ -85,8 +87,8 @@ struct RawContentBlock {
     name: Option<String>,
 }
 
-pub fn parse_session_file(path: &Path) -> Result<SessionStats, String> {
-    let file = File::open(path).map_err(|e| format!("не удалось открыть {path:?}: {e}"))?;
+pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, String> {
+    let file = File::open(path).map_err(|e| i18n::err_open_file(lang, &format!("{path:?}"), &e.to_string()))?;
     let reader = BufReader::new(file);
 
     let session_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
@@ -154,7 +156,7 @@ mod tests {
             r#"{"type":"user","message":{"role":"user","content":"hi"}}"#,
             r#"{"type":"assistant","cwd":"/home/x","message":{"model":"claude-sonnet-5","usage":{"input_tokens":10,"output_tokens":20,"cache_creation_input_tokens":5,"cache_read_input_tokens":100}}}"#,
         ]);
-        let stats = parse_session_file(file.path()).unwrap();
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
         assert_eq!(stats.turns.len(), 1);
         let total = stats.total_usage();
         assert_eq!(total.input_tokens, 10);
@@ -168,7 +170,7 @@ mod tests {
         let file = write_jsonl(&[
             r#"{"type":"assistant","message":{"model":"claude-sonnet-5","content":[{"type":"tool_use","name":"Read"},{"type":"tool_use","name":"Read"},{"type":"tool_use","name":"Bash"}]}}"#,
         ]);
-        let stats = parse_session_file(file.path()).unwrap();
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
         assert_eq!(stats.tool_calls.get("Read"), Some(&2));
         assert_eq!(stats.tool_calls.get("Bash"), Some(&1));
     }
@@ -179,7 +181,7 @@ mod tests {
             "not even json",
             r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":5,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
         ]);
-        let stats = parse_session_file(file.path()).unwrap();
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
         assert_eq!(stats.turns.len(), 1);
     }
 
@@ -188,7 +190,7 @@ mod tests {
         let file = write_jsonl(&[
             r#"{"type":"user","message":{"role":"user","content":"hello","usage":{"input_tokens":999,"output_tokens":999,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
         ]);
-        let stats = parse_session_file(file.path()).unwrap();
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
         assert_eq!(stats.turns.len(), 0);
     }
 
@@ -198,7 +200,7 @@ mod tests {
             r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":10,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
             r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":20,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
         ]);
-        let stats = parse_session_file(file.path()).unwrap();
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
         let total = stats.total_usage();
         assert_eq!(total.input_tokens, 30);
         assert_eq!(total.output_tokens, 30);

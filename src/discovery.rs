@@ -1,11 +1,13 @@
 use std::path::PathBuf;
 
+use crate::i18n::{self, Lang};
+
 /// Claude Code stores one JSONL transcript per session under
 /// `~/.claude/projects/<escaped-cwd>/<session-id>.jsonl`. This walks that
 /// tree (non-recursively into project dirs, since each is flat) and returns
 /// every `.jsonl` file found, newest first.
-pub fn find_session_files(within_days: Option<u64>) -> Result<Vec<PathBuf>, String> {
-    let home = dirs::home_dir().ok_or("не удалось определить домашнюю директорию")?;
+pub fn find_session_files(within_days: Option<u64>, lang: Lang) -> Result<Vec<PathBuf>, String> {
+    let home = dirs::home_dir().ok_or_else(|| i18n::err_home_dir_not_found(lang).to_string())?;
     let projects_dir = home.join(".claude").join("projects");
 
     if !projects_dir.exists() {
