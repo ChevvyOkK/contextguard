@@ -36,7 +36,18 @@ contextguard --claude-md ./CLAUDE.md
 # Output in Russian instead of the English default
 contextguard --lang ru
 # or: CONTEXTGUARD_LANG=ru contextguard
+
+# Push aggregated daily snapshots to the hosted dashboard (opt-in only —
+# nothing is sent anywhere without --push)
+contextguard --push --api-url https://your-dashboard.example.com --api-key cg_...
+# or: CONTEXTGUARD_API_URL=... CONTEXTGUARD_API_KEY=... contextguard --push
 ```
+
+`--push` sends one row per calendar day covered by your local sessions —
+token counts by category, session count, and estimated cost, plus the
+plugin's tokens-saved figure for today only. It never sends code, prompts,
+tool names, or file paths; see [`contextguard-api`](https://github.com/ChevvyOkK/contextguard-api)
+for the exact schema this is validated against on the way in.
 
 Output is a terminal report: total sessions, token breakdown by category,
 estimated cost, cache-hit efficiency, the most expensive individual

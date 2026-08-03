@@ -166,9 +166,8 @@ mod tests {
     fn session_with(model: &str, usage: Usage) -> SessionStats {
         SessionStats {
             session_id: "s".into(),
-            cwd: None,
             turns: vec![(model.to_string(), usage)],
-            tool_calls: HashMap::new(),
+            ..Default::default()
         }
     }
 

@@ -32,6 +32,11 @@ pub struct SessionStats {
     /// computed per-model rather than assuming one model for the session.
     pub turns: Vec<(String, Usage)>,
     pub tool_calls: HashMap<String, u64>,
+    /// ISO 8601 timestamp of the first record seen in the file. Used to
+    /// bucket a session into a calendar day for `--push`; a session that
+    /// spans midnight is attributed entirely to its start day rather than
+    /// split, which is a deliberate simplification, not an oversight.
+    pub first_timestamp: Option<String>,
 }
 
 impl SessionStats {
@@ -53,6 +58,8 @@ struct RawLine {
     kind: Option<String>,
     #[serde(default)]
     cwd: Option<String>,
+    #[serde(default)]
+    timestamp: Option<String>,
     #[serde(default)]
     message: Option<RawMessage>,
 }
@@ -103,6 +110,9 @@ pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, Strin
 
         if stats.cwd.is_none() {
             stats.cwd = raw.cwd;
+        }
+        if stats.first_timestamp.is_none() {
+            stats.first_timestamp = raw.timestamp;
         }
 
         if raw.kind.as_deref() != Some("assistant") {

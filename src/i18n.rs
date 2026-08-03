@@ -217,6 +217,29 @@ pub fn suggestion_claude_md_generic(lang: Lang) -> &'static str {
     }
 }
 
+pub fn err_push_missing_config(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "--push requires both an API URL and an API key: pass --api-url/--api-key or set CONTEXTGUARD_API_URL/CONTEXTGUARD_API_KEY",
+        Lang::Ru => "--push требует API URL и API-ключ: передайте --api-url/--api-key или задайте CONTEXTGUARD_API_URL/CONTEXTGUARD_API_KEY",
+    }
+}
+
+pub fn push_header(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Pushing aggregated daily snapshots to the dashboard:",
+        Lang::Ru => "Отправка агрегированных снимков в дашборд:",
+    }
+}
+
+pub fn push_result_line(lang: Lang, day: &str, ok: bool, detail: &str) -> String {
+    match (lang, ok) {
+        (Lang::En, true) => format!("  {day}: ok"),
+        (Lang::Ru, true) => format!("  {day}: успешно"),
+        (Lang::En, false) => format!("  {day}: failed — {detail}"),
+        (Lang::Ru, false) => format!("  {day}: ошибка — {detail}"),
+    }
+}
+
 pub fn no_issues_found(lang: Lang) -> &'static str {
     match lang {
         Lang::En => "No obvious issues found — looks efficient.",
