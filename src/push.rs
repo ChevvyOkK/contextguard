@@ -6,6 +6,17 @@ use crate::pricing::PricingTable;
 use crate::session::SessionStats;
 
 #[derive(Debug, Serialize)]
+struct ModelCostPayload<'a> {
+    model: &'a str,
+    #[serde(rename = "inputTokens")]
+    input_tokens: u64,
+    #[serde(rename = "outputTokens")]
+    output_tokens: u64,
+    #[serde(rename = "costUsd")]
+    cost_usd: f64,
+}
+
+#[derive(Debug, Serialize)]
 struct IngestPayload<'a> {
     date: &'a str,
     #[serde(rename = "sourceLabel")]
@@ -24,6 +35,15 @@ struct IngestPayload<'a> {
     cost_estimate_usd: f64,
     #[serde(rename = "tokensSavedEstimate", skip_serializing_if = "Option::is_none")]
     tokens_saved_estimate: Option<u64>,
+    #[serde(rename = "modelCosts", skip_serializing_if = "Vec::is_empty")]
+    model_costs: Vec<ModelCostPayload<'a>>,
+}
+
+#[derive(Default)]
+struct ModelAccum {
+    input_tokens: u64,
+    output_tokens: u64,
+    cost_usd: f64,
 }
 
 #[derive(Default)]
@@ -34,6 +54,7 @@ struct DayBucket {
     cache_write_tokens: u64,
     cache_read_tokens: u64,
     cost_usd: f64,
+    by_model: HashMap<String, ModelAccum>,
 }
 
 /// First 10 chars of an ISO 8601 timestamp is its calendar date
@@ -61,7 +82,13 @@ fn bucket_by_day(sessions: &[SessionStats], pricing: &PricingTable) -> HashMap<S
         bucket.cache_read_tokens += usage.cache_read_input_tokens;
 
         for (model, turn_usage) in &session.turns {
-            bucket.cost_usd += pricing.cost_usd(model, turn_usage);
+            let cost = pricing.cost_usd(model, turn_usage);
+            bucket.cost_usd += cost;
+
+            let accum = bucket.by_model.entry(model.clone()).or_default();
+            accum.input_tokens += turn_usage.input_tokens;
+            accum.output_tokens += turn_usage.output_tokens;
+            accum.cost_usd += cost;
         }
     }
 
@@ -108,6 +135,22 @@ pub fn push_snapshots(
 
     let mut outcomes = Vec::with_capacity(buckets.len());
     for (day, bucket) in buckets {
+        let mut model_costs: Vec<ModelCostPayload> = bucket
+            .by_model
+            .iter()
+            .map(|(model, accum)| ModelCostPayload {
+                model,
+                input_tokens: accum.input_tokens,
+                output_tokens: accum.output_tokens,
+                cost_usd: accum.cost_usd,
+            })
+            .collect();
+        model_costs.sort_by(|a, b| {
+            b.cost_usd
+                .partial_cmp(&a.cost_usd)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
         let payload = IngestPayload {
             date: &day,
             source_label: &label,
@@ -118,6 +161,7 @@ pub fn push_snapshots(
             cache_read_tokens: bucket.cache_read_tokens,
             cost_estimate_usd: bucket.cost_usd,
             tokens_saved_estimate: if day == today { Some(tokens_saved_today) } else { None },
+            model_costs,
         };
 
         let result = client
@@ -222,6 +266,46 @@ mod tests {
         let day2 = buckets.get("2026-08-02").unwrap();
         assert_eq!(day2.sessions_count, 1);
         assert_eq!(day2.input_tokens, 0);
+    }
+
+    #[test]
+    fn bucket_by_day_aggregates_cost_and_tokens_per_model() {
+        let pricing = PricingTable::defaults();
+        let sessions = vec![SessionStats {
+            session_id: "a".into(),
+            first_timestamp: Some("2026-08-01T10:00:00.000Z".into()),
+            turns: vec![
+                (
+                    "claude-opus-5".into(),
+                    Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                ),
+                (
+                    "claude-haiku-4-5".into(),
+                    Usage { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                ),
+                (
+                    "claude-opus-5".into(),
+                    Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                ),
+            ],
+            ..Default::default()
+        }];
+
+        let buckets = bucket_by_day(&sessions, &pricing);
+        let day = buckets.get("2026-08-01").unwrap();
+
+        assert_eq!(day.by_model.len(), 2);
+        let opus = day.by_model.get("claude-opus-5").unwrap();
+        assert_eq!(opus.input_tokens, 200);
+        assert_eq!(opus.output_tokens, 100);
+        assert!(opus.cost_usd > 0.0);
+        let haiku = day.by_model.get("claude-haiku-4-5").unwrap();
+        assert_eq!(haiku.input_tokens, 10);
+        // Confirms each model's cost was priced with its own rate rather
+        // than all turns collapsing into one undifferentiated total —
+        // Opus's per-token rate is ~19x Haiku's, so even with 20x fewer
+        // tokens Haiku's slice should cost less.
+        assert!(opus.cost_usd > haiku.cost_usd);
     }
 
     #[test]
