@@ -2,6 +2,13 @@
 name = "contextguard"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.85"
+description = "Local-first CLI that finds where your Claude Code tokens go — cache churn, re-reads, CLAUDE.md bloat, burn-rate spikes, and model mismatches."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ChevvyOkK/contextguard"
+readme = "README.md"
+keywords = ["claude-code", "cli", "tokens", "cost", "llm"]
+categories = ["command-line-utilities"]
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
