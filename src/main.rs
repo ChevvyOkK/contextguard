@@ -1,11 +1,13 @@
 mod claude_md;
 mod discovery;
 mod i18n;
+mod optimize;
 mod pricing;
 mod push;
 mod report;
 mod savings;
 mod session;
+mod timeutil;
 
 use std::path::PathBuf;
 
@@ -13,6 +15,14 @@ use clap::Parser;
 use owo_colors::OwoColorize;
 
 use i18n::Lang;
+
+/// Text: the full interactive report. Markdown: a compact summary + top-3
+/// cross-algorithm findings, meant for pasting into Slack or a GitHub PR.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum OutputFormat {
+    Text,
+    Markdown,
+}
 
 /// ContextGuard — local audit of Claude Code token spend. Nothing is sent
 /// anywhere unless you explicitly pass --push: it only reads session files
@@ -27,6 +37,11 @@ struct Cli {
     /// Path to a CLAUDE.md to analyze (default: looked up in the current directory)
     #[arg(long)]
     claude_md: Option<PathBuf>,
+
+    /// Output format: "text" (default, full report) or "markdown" (compact,
+    /// top-3 findings — for Slack/GitHub PR)
+    #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
+    format: OutputFormat,
 
     /// Output language: "en" or "ru" (default: en, or $CONTEXTGUARD_LANG)
     #[arg(long)]
@@ -80,7 +95,15 @@ fn main() {
     let claude_md_report = claude_md_path.as_deref().and_then(|p| claude_md::analyze(p, lang).ok());
     let savings_report = savings::read();
 
-    report::print_report(&agg, claude_md_report.as_ref(), &savings_report, lang);
+    match cli.format {
+        OutputFormat::Text => {
+            report::print_report(&agg, claude_md_report.as_ref(), &savings_report, lang);
+            report::print_optimizations(&sessions, &pricing, claude_md_report.as_ref(), lang);
+        }
+        OutputFormat::Markdown => {
+            report::print_markdown_report(&agg, claude_md_report.as_ref(), &sessions, &pricing, lang);
+        }
+    }
 
     if cli.push {
         let api_url = cli.api_url.or_else(|| std::env::var("CONTEXTGUARD_API_URL").ok());

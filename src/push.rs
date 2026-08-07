@@ -81,13 +81,13 @@ fn bucket_by_day(sessions: &[SessionStats], pricing: &PricingTable) -> HashMap<S
         bucket.cache_write_tokens += usage.cache_creation_input_tokens;
         bucket.cache_read_tokens += usage.cache_read_input_tokens;
 
-        for (model, turn_usage) in &session.turns {
-            let cost = pricing.cost_usd(model, turn_usage);
+        for turn in &session.turns {
+            let cost = pricing.cost_usd(&turn.model, &turn.usage);
             bucket.cost_usd += cost;
 
-            let accum = bucket.by_model.entry(model.clone()).or_default();
-            accum.input_tokens += turn_usage.input_tokens;
-            accum.output_tokens += turn_usage.output_tokens;
+            let accum = bucket.by_model.entry(turn.model.clone()).or_default();
+            accum.input_tokens += turn.usage.input_tokens;
+            accum.output_tokens += turn.usage.output_tokens;
             accum.cost_usd += cost;
         }
     }
@@ -235,19 +235,21 @@ mod tests {
             SessionStats {
                 session_id: "a".into(),
                 first_timestamp: Some("2026-08-01T10:00:00.000Z".into()),
-                turns: vec![(
-                    "claude-sonnet-5".into(),
-                    Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-                )],
+                turns: vec![crate::session::Turn {
+                    model: "claude-sonnet-5".into(),
+                    usage: Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                    timestamp: None,
+                }],
                 ..Default::default()
             },
             SessionStats {
                 session_id: "b".into(),
                 first_timestamp: Some("2026-08-01T18:00:00.000Z".into()),
-                turns: vec![(
-                    "claude-sonnet-5".into(),
-                    Usage { input_tokens: 200, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-                )],
+                turns: vec![crate::session::Turn {
+                    model: "claude-sonnet-5".into(),
+                    usage: Usage { input_tokens: 200, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                    timestamp: None,
+                }],
                 ..Default::default()
             },
             SessionStats {
@@ -275,18 +277,21 @@ mod tests {
             session_id: "a".into(),
             first_timestamp: Some("2026-08-01T10:00:00.000Z".into()),
             turns: vec![
-                (
-                    "claude-opus-5".into(),
-                    Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-                ),
-                (
-                    "claude-haiku-4-5".into(),
-                    Usage { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-                ),
-                (
-                    "claude-opus-5".into(),
-                    Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-                ),
+                crate::session::Turn {
+                    model: "claude-opus-5".into(),
+                    usage: Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                    timestamp: None,
+                },
+                crate::session::Turn {
+                    model: "claude-haiku-4-5".into(),
+                    usage: Usage { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                    timestamp: None,
+                },
+                crate::session::Turn {
+                    model: "claude-opus-5".into(),
+                    usage: Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+                    timestamp: None,
+                },
             ],
             ..Default::default()
         }];

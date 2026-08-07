@@ -24,14 +24,38 @@ impl Usage {
     }
 }
 
+/// One assistant turn: which model answered, what it cost in tokens, and
+/// when — the timestamp is what lets the optimization engine (src/optimize.rs)
+/// measure real elapsed time (burn rate) and turn-over-turn context growth.
+#[derive(Debug, Clone, Default)]
+pub struct Turn {
+    pub model: String,
+    pub usage: Usage,
+    pub timestamp: Option<String>,
+}
+
+/// A single tool_use block, kept separate from the per-name `tool_calls`
+/// tally so the optimization engine can ask "which turn, which path" —
+/// questions the aggregate count can't answer (e.g. the Re-Read Detector
+/// needs to group Read calls by file path within a session).
+#[derive(Debug, Clone)]
+pub struct ToolCall {
+    /// Index into `SessionStats::turns` for the turn this call happened in.
+    /// Best-effort for a message with content but no usage block (rare,
+    /// malformed data): attributed to the next turn boundary rather than
+    /// dropped.
+    pub turn_index: usize,
+    pub name: String,
+    pub file_path: Option<String>,
+}
+
 #[derive(Debug, Default)]
 pub struct SessionStats {
     pub session_id: String,
     pub cwd: Option<String>,
-    /// (model, usage) per assistant turn — kept granular so cost can be
-    /// computed per-model rather than assuming one model for the session.
-    pub turns: Vec<(String, Usage)>,
+    pub turns: Vec<Turn>,
     pub tool_calls: HashMap<String, u64>,
+    pub tool_call_log: Vec<ToolCall>,
     /// ISO 8601 timestamp of the first record seen in the file. Used to
     /// bucket a session into a calendar day for `--push`; a session that
     /// spans midnight is attributed entirely to its start day rather than
@@ -42,8 +66,8 @@ pub struct SessionStats {
 impl SessionStats {
     pub fn total_usage(&self) -> Usage {
         let mut total = Usage::default();
-        for (_, u) in &self.turns {
-            total.add(u);
+        for turn in &self.turns {
+            total.add(&turn.usage);
         }
         total
     }
@@ -92,6 +116,17 @@ struct RawContentBlock {
     kind: Option<String>,
     #[serde(default)]
     name: Option<String>,
+    #[serde(default)]
+    input: Option<RawToolInput>,
+}
+
+/// Tool call arguments, permissively parsed: only `file_path` is used
+/// (Read/Edit/Write all key it the same way), everything else in `input`
+/// is irrelevant here and never even reaches this struct.
+#[derive(Debug, Deserialize)]
+struct RawToolInput {
+    #[serde(default)]
+    file_path: Option<String>,
 }
 
 pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, String> {
@@ -112,7 +147,7 @@ pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, Strin
             stats.cwd = raw.cwd;
         }
         if stats.first_timestamp.is_none() {
-            stats.first_timestamp = raw.timestamp;
+            stats.first_timestamp = raw.timestamp.clone();
         }
 
         if raw.kind.as_deref() != Some("assistant") {
@@ -120,17 +155,23 @@ pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, Strin
         }
         let Some(message) = raw.message else { continue };
 
+        // Captured before pushing this line's turn (if any) so a tool_use
+        // block in the same message points at the turn it actually belongs
+        // to, not the one after it.
+        let turn_index = stats.turns.len();
+
         if let Some(u) = &message.usage {
             let model = message.model.clone().unwrap_or_else(|| "unknown".to_string());
-            stats.turns.push((
+            stats.turns.push(Turn {
                 model,
-                Usage {
+                usage: Usage {
                     input_tokens: u.input_tokens,
                     output_tokens: u.output_tokens,
                     cache_creation_input_tokens: u.cache_creation_input_tokens,
                     cache_read_input_tokens: u.cache_read_input_tokens,
                 },
-            ));
+                timestamp: raw.timestamp.clone(),
+            });
         }
 
         if let Some(blocks) = &message.content {
@@ -138,6 +179,11 @@ pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, Strin
                 if block.kind.as_deref() == Some("tool_use") {
                     if let Some(name) = &block.name {
                         *stats.tool_calls.entry(name.clone()).or_insert(0) += 1;
+                        stats.tool_call_log.push(ToolCall {
+                            turn_index,
+                            name: name.clone(),
+                            file_path: block.input.as_ref().and_then(|i| i.file_path.clone()),
+                        });
                     }
                 }
             }
@@ -176,6 +222,17 @@ mod tests {
     }
 
     #[test]
+    fn captures_per_turn_timestamp() {
+        let file = write_jsonl(&[
+            r#"{"type":"assistant","timestamp":"2026-08-01T10:00:00.000Z","message":{"model":"claude-sonnet-5","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            r#"{"type":"assistant","timestamp":"2026-08-01T10:05:00.000Z","message":{"model":"claude-sonnet-5","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+        ]);
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
+        assert_eq!(stats.turns[0].timestamp.as_deref(), Some("2026-08-01T10:00:00.000Z"));
+        assert_eq!(stats.turns[1].timestamp.as_deref(), Some("2026-08-01T10:05:00.000Z"));
+    }
+
+    #[test]
     fn counts_tool_use_by_name() {
         let file = write_jsonl(&[
             r#"{"type":"assistant","message":{"model":"claude-sonnet-5","content":[{"type":"tool_use","name":"Read"},{"type":"tool_use","name":"Read"},{"type":"tool_use","name":"Bash"}]}}"#,
@@ -183,6 +240,21 @@ mod tests {
         let stats = parse_session_file(file.path(), Lang::En).unwrap();
         assert_eq!(stats.tool_calls.get("Read"), Some(&2));
         assert_eq!(stats.tool_calls.get("Bash"), Some(&1));
+    }
+
+    #[test]
+    fn logs_tool_calls_with_file_path_and_turn_index() {
+        let file = write_jsonl(&[
+            r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/a/b.rs"}}]}}"#,
+            r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":1,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0},"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/a/b.rs"}},{"type":"tool_use","name":"Bash","input":{"command":"ls"}}]}}"#,
+        ]);
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
+        assert_eq!(stats.tool_call_log.len(), 3);
+        assert_eq!(stats.tool_call_log[0].turn_index, 0);
+        assert_eq!(stats.tool_call_log[0].file_path.as_deref(), Some("/a/b.rs"));
+        assert_eq!(stats.tool_call_log[1].turn_index, 1);
+        // Bash's `input` has no file_path field at all — must not error, just absent.
+        assert_eq!(stats.tool_call_log[2].file_path, None);
     }
 
     #[test]

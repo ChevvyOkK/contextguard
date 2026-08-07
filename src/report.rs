@@ -4,9 +4,14 @@ use owo_colors::OwoColorize;
 
 use crate::claude_md::ClaudeMdReport;
 use crate::i18n::{self, Lang};
+use crate::optimize;
 use crate::pricing::PricingTable;
 use crate::savings::SavingsReport;
 use crate::session::{SessionStats, Usage};
+
+/// How many findings to show per algorithm — enough to act on, not so many
+/// the report turns into noise.
+const FINDINGS_PER_ALGORITHM: usize = 3;
 
 pub struct Aggregate {
     pub sessions: usize,
@@ -24,8 +29,8 @@ pub fn aggregate(sessions: &[SessionStats], pricing: &PricingTable) -> Aggregate
 
     for session in sessions {
         let mut session_cost = 0.0;
-        for (model, turn_usage) in &session.turns {
-            session_cost += pricing.cost_usd(model, turn_usage);
+        for turn in &session.turns {
+            session_cost += pricing.cost_usd(&turn.model, &turn.usage);
         }
         cost_usd += session_cost;
         usage.add(&session.total_usage());
@@ -147,6 +152,183 @@ pub fn print_report(agg: &Aggregate, claude_md: Option<&ClaudeMdReport>, savings
     }
 }
 
+/// Runs all six Cost-Optimization Engine detectors and prints every
+/// resulting finding as exactly three lines: a dollar loss, a reason, and a
+/// one-line fix. `claude_md` is the already-parsed report (if any) so this
+/// doesn't re-read the file.
+pub fn print_optimizations(
+    sessions: &[SessionStats],
+    pricing: &PricingTable,
+    claude_md: Option<&ClaudeMdReport>,
+    lang: Lang,
+) {
+    let cache_churn = optimize::detect_cache_churn(sessions, pricing);
+    let re_reads = optimize::detect_re_reads(sessions, pricing);
+    let claude_md_finding = claude_md.and_then(|r| optimize::detect_claude_md_amortized(r, sessions, pricing));
+    let burn_rate = optimize::detect_burn_rate(sessions, pricing);
+    let context_growth = optimize::detect_context_growth(sessions, pricing);
+    let model_mismatch = optimize::detect_model_mismatch(sessions, pricing);
+
+    let any_findings = !cache_churn.is_empty()
+        || !re_reads.is_empty()
+        || claude_md_finding.is_some()
+        || !burn_rate.is_empty()
+        || !context_growth.is_empty()
+        || !model_mismatch.is_empty();
+
+    println!();
+    println!("{}", i18n::optimize_header(lang).bold());
+
+    if !any_findings {
+        println!("  {}", i18n::optimize_none_found(lang));
+        return;
+    }
+
+    for f in cache_churn.iter().take(FINDINGS_PER_ALGORITHM) {
+        print_finding(f.loss_usd, i18n::optimize_cache_churn_reason(lang, &f.session_id, f.churn_pct, f.turns), i18n::optimize_cache_churn_action(lang), lang);
+    }
+
+    for f in re_reads.iter().take(FINDINGS_PER_ALGORITHM) {
+        print_finding(f.loss_usd, i18n::optimize_re_read_reason(lang, &f.path, f.read_count, &f.session_id), i18n::optimize_re_read_action(lang), lang);
+    }
+
+    if let (Some(report), Some(f)) = (claude_md, &claude_md_finding) {
+        print_finding(
+            f.savings_usd,
+            i18n::optimize_claude_md_reason(lang, report.line_count, report.approx_tokens, f.monthly_cost_usd),
+            i18n::optimize_claude_md_action(lang, f.target_lines),
+            lang,
+        );
+    }
+
+    for f in burn_rate.iter().take(FINDINGS_PER_ALGORITHM) {
+        print_finding(f.loss_usd, i18n::optimize_burn_rate_reason(lang, &f.session_id, f.usd_per_hour, f.p95_usd_per_hour), i18n::optimize_burn_rate_action(lang), lang);
+    }
+
+    for f in context_growth.iter().take(FINDINGS_PER_ALGORITHM) {
+        print_finding(
+            f.loss_usd,
+            i18n::optimize_context_growth_reason(lang, &f.session_id, f.growth_ratio, f.turns),
+            i18n::optimize_context_growth_action(lang, f.optimal_turn),
+            lang,
+        );
+    }
+
+    for f in model_mismatch.iter().take(FINDINGS_PER_ALGORITHM) {
+        print_finding(f.loss_usd, i18n::optimize_model_mismatch_reason(lang, &f.session_id, f.flagged_turns), i18n::optimize_model_mismatch_action(lang), lang);
+    }
+}
+
+/// First 8 chars of a session id — enough to reference it in a compact
+/// report without the full UUID eating the line.
+fn short_id(id: &str) -> String {
+    id.chars().take(8).collect()
+}
+
+struct MarkdownItem {
+    title: &'static str,
+    loss_line: String,
+    action_line: String,
+    loss_usd: f64,
+}
+
+/// Compact Markdown audit report for pasting into Slack or a GitHub PR:
+/// a one-line summary plus the top 3 findings *across all six detectors
+/// combined* (ranked by $ loss), unlike the text report's per-algorithm
+/// sections capped at 3 each.
+pub fn print_markdown_report(
+    agg: &Aggregate,
+    claude_md: Option<&ClaudeMdReport>,
+    sessions: &[SessionStats],
+    pricing: &PricingTable,
+    lang: Lang,
+) {
+    println!("{}", i18n::markdown_report_title(lang));
+    println!("{}", i18n::markdown_summary_line(lang, agg.sessions, agg.cost_usd));
+
+    let efficiency = cache_efficiency(&agg.usage);
+    println!("{}", i18n::markdown_cache_hit_line(lang, efficiency, efficiency >= 85.0));
+    println!();
+    println!("{}", i18n::markdown_top_issues_header(lang));
+
+    let mut items: Vec<MarkdownItem> = Vec::new();
+
+    for f in optimize::detect_cache_churn(sessions, pricing) {
+        items.push(MarkdownItem {
+            title: i18n::markdown_title_cache_churn(lang),
+            loss_line: i18n::markdown_loss_cache_churn(lang, f.loss_usd, &short_id(&f.session_id)),
+            action_line: format!("{} {}", i18n::markdown_action_label(lang), i18n::optimize_cache_churn_action(lang)),
+            loss_usd: f.loss_usd,
+        });
+    }
+
+    for f in optimize::detect_re_reads(sessions, pricing) {
+        items.push(MarkdownItem {
+            title: i18n::markdown_title_re_read(lang),
+            loss_line: i18n::markdown_loss_re_read(lang, f.loss_usd, &f.path, f.read_count),
+            action_line: format!("{} {}", i18n::markdown_action_label(lang), i18n::optimize_re_read_action(lang)),
+            loss_usd: f.loss_usd,
+        });
+    }
+
+    let claude_md_finding = claude_md.and_then(|r| optimize::detect_claude_md_amortized(r, sessions, pricing));
+    if let (Some(report), Some(f)) = (claude_md, &claude_md_finding) {
+        items.push(MarkdownItem {
+            title: i18n::markdown_title_claude_md(lang),
+            loss_line: i18n::markdown_loss_claude_md(lang, f.savings_usd, report.line_count),
+            action_line: format!("{} {}", i18n::markdown_action_label(lang), i18n::optimize_claude_md_action(lang, f.target_lines)),
+            loss_usd: f.savings_usd,
+        });
+    }
+
+    for f in optimize::detect_burn_rate(sessions, pricing) {
+        items.push(MarkdownItem {
+            title: i18n::markdown_title_burn_rate(lang),
+            loss_line: i18n::markdown_loss_burn_rate(lang, f.loss_usd, &short_id(&f.session_id)),
+            action_line: format!("{} {}", i18n::markdown_action_label(lang), i18n::optimize_burn_rate_action(lang)),
+            loss_usd: f.loss_usd,
+        });
+    }
+
+    for f in optimize::detect_context_growth(sessions, pricing) {
+        items.push(MarkdownItem {
+            title: i18n::markdown_title_context_growth(lang),
+            loss_line: i18n::markdown_loss_context_growth(lang, f.loss_usd, &short_id(&f.session_id)),
+            action_line: format!("{} {}", i18n::markdown_action_label(lang), i18n::optimize_context_growth_action(lang, f.optimal_turn)),
+            loss_usd: f.loss_usd,
+        });
+    }
+
+    for f in optimize::detect_model_mismatch(sessions, pricing) {
+        items.push(MarkdownItem {
+            title: i18n::markdown_title_model_mismatch(lang),
+            loss_line: i18n::markdown_loss_model_mismatch(lang, f.loss_usd, &short_id(&f.session_id), f.flagged_turns),
+            action_line: format!("{} {}", i18n::markdown_action_label(lang), i18n::optimize_model_mismatch_action(lang)),
+            loss_usd: f.loss_usd,
+        });
+    }
+
+    items.sort_by(|a, b| b.loss_usd.partial_cmp(&a.loss_usd).unwrap_or(std::cmp::Ordering::Equal));
+
+    if items.is_empty() {
+        println!("{}", i18n::markdown_no_issues(lang));
+        return;
+    }
+
+    for (i, item) in items.iter().take(3).enumerate() {
+        println!("{}. {}", i + 1, item.title);
+        println!("   - {}", item.loss_line);
+        println!("   - {}", item.action_line);
+    }
+}
+
+fn print_finding(loss_usd: f64, reason: String, action: impl std::fmt::Display, lang: Lang) {
+    println!();
+    println!("  {}", i18n::optimize_loss_line(lang, loss_usd).yellow().bold());
+    println!("  {reason}");
+    println!("  {} {action}", i18n::optimize_action_prefix(lang).cyan());
+}
+
 fn format_num(n: u64) -> String {
     let s = n.to_string();
     let mut result = String::new();
@@ -166,7 +348,7 @@ mod tests {
     fn session_with(model: &str, usage: Usage) -> SessionStats {
         SessionStats {
             session_id: "s".into(),
-            turns: vec![(model.to_string(), usage)],
+            turns: vec![crate::session::Turn { model: model.to_string(), usage, timestamp: None }],
             ..Default::default()
         }
     }
