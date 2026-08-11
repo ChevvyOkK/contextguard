@@ -624,3 +624,183 @@ pub fn context_mcp_unused(lang: Lang, count: usize, names: &str) -> String {
     }
 }
 
+pub fn err_write_file(lang: Lang, path: &str, e: &str) -> String {
+    match lang {
+        Lang::En => format!("could not write {path}: {e}"),
+        Lang::Ru => format!("не удалось записать {path}: {e}"),
+    }
+}
+
+// --- lint ----------------------------------------------------------------
+
+pub fn lint_title(lang: Lang, path: &str) -> String {
+    match lang {
+        Lang::En => format!("CLAUDE.md lint — {path}"),
+        Lang::Ru => format!("Проверка CLAUDE.md — {path}"),
+    }
+}
+
+pub fn lint_summary(lang: Lang, lines: usize, tokens: u64) -> String {
+    match lang {
+        Lang::En => format!("{lines} lines, ~{tokens} tokens"),
+        Lang::Ru => format!("{lines} строк, ~{tokens} токенов"),
+    }
+}
+
+pub fn lint_clean(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "No issues found.",
+        Lang::Ru => "Замечаний не найдено.",
+    }
+}
+
+pub fn lint_reason_boilerplate(lang: Lang, phrase: &str) -> String {
+    match lang {
+        Lang::En => format!("restates default behavior (\"{phrase}\")"),
+        Lang::Ru => format!("повторяет поведение модели по умолчанию («{phrase}»)"),
+    }
+}
+
+pub fn lint_reason_duplicate(lang: Lang, origin_line: usize) -> String {
+    match lang {
+        Lang::En => format!("identical to line {origin_line}"),
+        Lang::Ru => format!("совпадает со строкой {origin_line}"),
+    }
+}
+
+pub fn lint_reason_stale_path(lang: Lang, token: &str) -> String {
+    match lang {
+        Lang::En => format!("`{token}` — no analyzed session touched this path"),
+        Lang::Ru => format!("«{token}» — ни одна проанализированная сессия не обращалась к этому пути"),
+    }
+}
+
+pub fn lint_reason_unused_server(lang: Lang, server: &str) -> String {
+    match lang {
+        Lang::En => format!("`{server}` was never called in the analyzed sessions"),
+        Lang::Ru => format!("«{server}» ни разу не вызывался в проанализированных сессиях"),
+    }
+}
+
+pub fn lint_kind_label(lang: Lang, kind: crate::lint::FindingKind) -> &'static str {
+    use crate::lint::FindingKind::*;
+    match (lang, kind) {
+        (Lang::En, Boilerplate) => "boilerplate",
+        (Lang::Ru, Boilerplate) => "шаблонная фраза",
+        (Lang::En, Duplicate) => "duplicate",
+        (Lang::Ru, Duplicate) => "дубликат",
+        (Lang::En, StalePath) => "stale path",
+        (Lang::Ru, StalePath) => "неиспользуемый путь",
+        (Lang::En, UnusedMcpServer) => "unused MCP server",
+        (Lang::Ru, UnusedMcpServer) => "неиспользуемый MCP-сервер",
+    }
+}
+
+pub fn lint_fixable_note(lang: Lang, count: usize, tokens: u64) -> String {
+    match lang {
+        Lang::En => format!("{count} of these can be removed automatically with --fix (~{tokens} tokens)"),
+        Lang::Ru => format!("{count} из них можно удалить автоматически флагом --fix (~{tokens} токенов)"),
+    }
+}
+
+pub fn lint_cost_per_1k(lang: Lang, usd: f64) -> String {
+    match lang {
+        Lang::En => format!("${usd:.4} per 1,000 requests at Anthropic's published Sonnet cache-read rate"),
+        Lang::Ru => format!("${usd:.4} за 1000 запросов по опубликованному тарифу Anthropic (Sonnet, чтение из кэша)"),
+    }
+}
+
+pub fn lint_monthly_cost(lang: Lang, usd: f64) -> String {
+    match lang {
+        Lang::En => format!("≈${usd:.2}/mo at the volume observed in the sessions analyzed"),
+        Lang::Ru => format!("≈${usd:.2}/мес при объёме, замеренном в проанализированных сессиях"),
+    }
+}
+
+pub fn lint_monthly_savings(lang: Lang, usd: f64) -> String {
+    match lang {
+        Lang::En => format!("--fix would save about ${usd:.2}/mo at that volume"),
+        Lang::Ru => format!("--fix сэкономил бы примерно ${usd:.2}/мес при этом объёме"),
+    }
+}
+
+pub fn lint_no_local_volume(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "No local session history to measure a monthly volume from — run this on a \
+machine with Claude Code sessions to see a $/month figure.",
+        Lang::Ru => "Нет локальной истории сессий, чтобы измерить месячный объём — запустите \
+на машине с сессиями Claude Code, чтобы увидеть оценку $/мес.",
+    }
+}
+
+pub fn lint_fix_nothing(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Nothing auto-fixable found — no changes made.",
+        Lang::Ru => "Нечего исправлять автоматически — файл не изменён.",
+    }
+}
+
+pub fn lint_fix_preview_header(lang: Lang, count: usize) -> String {
+    match lang {
+        Lang::En => format!("--fix will remove {count} line(s):"),
+        Lang::Ru => format!("--fix удалит {count} строк(и):"),
+    }
+}
+
+pub fn lint_fix_done(lang: Lang, removed: usize, remaining: usize) -> String {
+    match lang {
+        Lang::En => format!("Done — {removed} line(s) removed, {remaining} remain."),
+        Lang::Ru => format!("Готово — удалено строк: {removed}, осталось: {remaining}."),
+    }
+}
+
+pub fn lint_compare_title(lang: Lang, baseline: &str, current: &str) -> String {
+    match lang {
+        Lang::En => format!("CLAUDE.md changed: {baseline} → {current}"),
+        Lang::Ru => format!("CLAUDE.md изменён: {baseline} → {current}"),
+    }
+}
+
+pub fn lint_compare_delta(lang: Lang, delta: i64, from: u64, to: u64) -> String {
+    let sign = if delta >= 0 { "+" } else { "" };
+    match lang {
+        Lang::En => format!("{sign}{delta} tokens (from {from} to {to}) on every request"),
+        Lang::Ru => format!("{sign}{delta} токенов (было {from}, стало {to}) в каждом запросе"),
+    }
+}
+
+pub fn lint_compare_no_change(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "CLAUDE.md's token count did not change.",
+        Lang::Ru => "Количество токенов в CLAUDE.md не изменилось.",
+    }
+}
+
+pub fn lint_compare_price_added(lang: Lang, usd_per_1k: f64) -> String {
+    match lang {
+        Lang::En => format!("That's about ${usd_per_1k:.2} per 1,000 requests at Anthropic's published Sonnet cache-read rate."),
+        Lang::Ru => format!("Это примерно ${usd_per_1k:.2} за 1000 запросов по опубликованному тарифу Anthropic (Sonnet, чтение из кэша)."),
+    }
+}
+
+pub fn lint_compare_price_saved(lang: Lang, usd_per_1k: f64) -> String {
+    match lang {
+        Lang::En => format!("That saves about ${usd_per_1k:.2} per 1,000 requests at Anthropic's published Sonnet cache-read rate."),
+        Lang::Ru => format!("Это экономит примерно ${usd_per_1k:.2} за 1000 запросов по опубликованному тарифу Anthropic (Sonnet, чтение из кэша)."),
+    }
+}
+
+pub fn lint_compare_monthly(lang: Lang, usd: f64) -> String {
+    match lang {
+        Lang::En => format!("At the volume observed in the sessions analyzed, that's about ${usd:.2}/mo."),
+        Lang::Ru => format!("При объёме, замеренном в проанализированных сессиях, это примерно ${usd:.2}/мес."),
+    }
+}
+
+pub fn lint_compare_footer(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Run `contextguard lint --compare-to <base> CLAUDE.md` locally to price this at your team's actual request volume.",
+        Lang::Ru => "Запустите `contextguard lint --compare-to <base> CLAUDE.md` локально, чтобы оценить это при реальном объёме запросов команды.",
+    }
+}
+
