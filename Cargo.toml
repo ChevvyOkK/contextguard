@@ -1,6 +1,6 @@
 [package]
 name = "contextguard"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
 rust-version = "1.85"
 description = "Local-first CLI that finds where your Claude Code tokens go — cache churn, re-reads, CLAUDE.md bloat, burn-rate spikes, and model mismatches."

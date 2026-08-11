@@ -6,7 +6,7 @@
 **cache churn, dead re-reads, and `CLAUDE.md` bloat, before it hits your invoice.**
 
 [![CI](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml/badge.svg)](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.4.0-6366f1)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-0.6.0-6366f1)](Cargo.toml)
 [![Rust MSRV](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](Cargo.toml)
 [![License: MIT OR Apache--2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 [![i18n](https://img.shields.io/badge/i18n-EN%20%7C%20RU-informational)](src/i18n.rs)
@@ -352,6 +352,62 @@ anything anywhere.
 
 <br>
 
+## 💸 `contextguard git-cost` — cost by branch and PR
+
+Every other detector in this tool bills to a *session*. This one bills to
+a *feature*: it matches local session cost against your git history so a
+team lead can see what a branch or a merged PR actually cost, not just an
+abstract total at the end of the month.
+
+```bash
+$ contextguard git-cost
+
+Cost by git branch / PR
+base branch: master, ~2h lookback before each first commit
+
+  feat/checkout-redesign      $34.20      6h12m   14 commits, 9 turns matched, since 2026-08-05 09:11:02 +0200
+  fix/auth-race                $4.80        41m    2 commits, 3 turns matched, since 2026-08-06 14:02:00 +0200
+  PR #212                     $71.40         —     1 commit (squash — no sub-commit history), 22 turns matched, since 2026-08-01 11:00:00 +0200
+
+31 local session turn(s) matched this repo. Cost is a time-window
+estimate, not an exact trace — working on two branches inside the same
+lookback window can attribute a turn to both.
+```
+
+Must be run inside a git working tree. Two sources feed the table:
+
+- **Live local branches** — everything unique to the branch since it
+  diverged from the base branch (`--base`, default: `origin/HEAD` or a
+  local `main`/`master`).
+- **Merged PRs on the base branch** — recovered from the merge commit
+  itself (`Merge pull request #123 …`, GitHub's default) or, for a squash
+  merge, from the commit's `... (#123)` suffix. This is what still shows a
+  cost after the source branch has been deleted.
+
+### How cost gets attributed, honestly
+
+Claude Code transcripts don't record which branch was checked out. The
+only signal available is *time*: a branch/PR's window is `[first commit
+time − lookback, last commit time]` (`--lookback-hours`, default 2 — the
+work behind a commit happens before you make it), and every local session
+turn whose timestamp falls in that window counts toward it.
+
+This is a heuristic, not a trace, and it has two known failure modes: work
+on two branches inside the same lookback window can be attributed to both,
+and work that never gets committed attributes to whichever window it
+happens to fall in, or nowhere at all. Good enough to see roughly what a
+feature cost, not precise enough to reconcile against an invoice — the
+same honesty bar the rest of this tool holds itself to. A squashed PR shows
+`—` for duration rather than a number, since a squash merge leaves no
+sub-commit history to measure a real span from.
+
+`--since-days N` bounds how far back the *merged-PR* scan on the base
+branch looks (default: unbounded); live branches are already bounded by
+where they diverged, so this flag doesn't affect them. `--format markdown`
+produces a table suitable for a PR/Slack comment.
+
+<br>
+
 ## ⚙️ Flags reference
 
 Global flags apply to every mode:
@@ -399,6 +455,15 @@ Headline report (no subcommand):
 | `--max <USD>` | number | — (required) | Threshold; exits 1 if crossed |
 | `--period <PERIOD>` | `daily` \| `monthly` | `monthly` | Which window to sum spend over |
 | `--webhook-url <URL>` | url | `$CONTEXTGUARD_BUDGET_WEBHOOK` | Slack/Discord-compatible POST when crossed |
+
+`contextguard git-cost [--base <BRANCH>] [--since-days <N>] [--lookback-hours <H>] [--format text|markdown]`:
+
+| Flag | Value | Default | Does |
+|---|---|---|---|
+| `--base <BRANCH>` | branch name | `origin/HEAD`, else local `main`/`master` | Branch feature branches are diffed against |
+| `--since-days <N>` | integer | unbounded | How far back to scan the base branch for merged PRs (live branches are unaffected) |
+| `--lookback-hours <H>` | number | `2` | Hours of work assumed before a commit, added to its cost window |
+| `--format <FORMAT>` | `text` \| `markdown` | `text` | `markdown` for a PR/Slack comment |
 
 `--push` sends **one row per calendar day**: token counts by category,
 session count, and estimated cost, plus the companion

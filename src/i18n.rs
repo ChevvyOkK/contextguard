@@ -950,3 +950,100 @@ pub fn budget_webhook_failed(lang: Lang, e: &str) -> String {
     }
 }
 
+// --- git-cost ----------------------------------------------------------------
+
+pub fn err_git_cost(lang: Lang, e: &str) -> String {
+    match lang {
+        Lang::En => format!("Could not attribute cost by git history: {e}"),
+        Lang::Ru => format!("Не удалось посчитать стоимость по git-истории: {e}"),
+    }
+}
+
+pub fn git_cost_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Cost by git branch / PR",
+        Lang::Ru => "Стоимость по веткам / PR",
+    }
+}
+
+pub fn git_cost_subtitle(lang: Lang, base: &str, lookback_hours: f64) -> String {
+    // Avoid "0h" for a genuine sub-hour lookback (e.g. 0.5h) rounding away
+    // to something that reads as "no lookback at all".
+    let lookback = if lookback_hours.fract().abs() < 0.05 {
+        format!("{lookback_hours:.0}h")
+    } else {
+        format!("{lookback_hours:.1}h")
+    };
+    match lang {
+        Lang::En => format!("base branch: {base}, ~{lookback} lookback before each first commit"),
+        Lang::Ru => format!("базовая ветка: {base}, запас ~{lookback} до первого коммита"),
+    }
+}
+
+pub fn git_cost_empty(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "No local branches or merged PRs with matching local session data found.",
+        Lang::Ru => "Не найдено веток или влитых PR с данными локальных сессий.",
+    }
+}
+
+pub fn git_cost_squash_marker(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "squash — no sub-commit history",
+        Lang::Ru => "squash — история под-коммитов недоступна",
+    }
+}
+
+pub fn git_cost_commits(lang: Lang, n: usize) -> String {
+    match lang {
+        Lang::En => format!("{n} commit{}", if n == 1 { "" } else { "s" }),
+        Lang::Ru => format!("{n} коммит{}", ru_commit_suffix(n)),
+    }
+}
+
+/// The trailing metadata segment of a git-cost report line: commit count,
+/// how many session turns backed the cost figure (a small number is a
+/// weaker estimate — worth showing, not hiding), and the date work on this
+/// item is reckoned to have started from.
+pub fn git_cost_item_meta(lang: Lang, commit_count: usize, turns_counted: usize, since_date: &str) -> String {
+    let commits = git_cost_commits(lang, commit_count);
+    match lang {
+        Lang::En => format!("{commits}, {turns_counted} turn(s) matched, since {since_date}"),
+        Lang::Ru => format!("{commits}, совпало реплик: {turns_counted}, с {since_date}"),
+    }
+}
+
+fn ru_commit_suffix(n: usize) -> &'static str {
+    let n100 = n % 100;
+    let n10 = n % 10;
+    if (11..=14).contains(&n100) {
+        "ов"
+    } else if n10 == 1 {
+        ""
+    } else if (2..=4).contains(&n10) {
+        "а"
+    } else {
+        "ов"
+    }
+}
+
+pub fn git_cost_footer(lang: Lang, turns_found: usize) -> String {
+    match lang {
+        Lang::En => format!(
+            "{turns_found} local session turn(s) matched this repo. Cost is a time-window estimate, not an exact trace — \
+             working on two branches inside the same lookback window can attribute a turn to both."
+        ),
+        Lang::Ru => format!(
+            "{turns_found} совпадающих реплик локальных сессий для этого репозитория. Стоимость — оценка по временным окнам, \
+             не точная трассировка: если работа шла над двумя ветками в одном окне запаса, реплика может попасть в обе."
+        ),
+    }
+}
+
+pub fn git_cost_no_local_sessions(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "No local Claude Code sessions matched this repository's directory at all — cost figures below are $0 for lack of data, not because nothing happened.",
+        Lang::Ru => "Ни одна локальная сессия Claude Code не найдена для директории этого репозитория — цифры ниже равны $0 из-за отсутствия данных, а не потому что ничего не происходило.",
+    }
+}
+

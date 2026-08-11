@@ -10,6 +10,7 @@ use crate::optimize;
 use crate::pricing::PricingTable;
 use crate::savings::SavingsReport;
 use crate::budget::BudgetCheck;
+use crate::git_cost::{CostItem, GitCostReport, ItemKind};
 use crate::savings_report::MonthlySavings;
 use crate::session::{SessionStats, Usage};
 
@@ -759,6 +760,106 @@ pub fn print_budget_check(check: &BudgetCheck, lang: Lang) {
     } else {
         println!("{}", line.green());
     }
+}
+
+// --- git-cost --------------------------------------------------------------
+
+fn format_duration_secs(secs: i64) -> String {
+    if secs <= 0 {
+        return "0m".to_string();
+    }
+    let days = secs / 86_400;
+    let hours = (secs % 86_400) / 3600;
+    let minutes = (secs % 3600) / 60;
+    if days > 0 {
+        format!("{days}d{hours}h")
+    } else if hours > 0 {
+        format!("{hours}h{minutes}m")
+    } else {
+        format!("{minutes}m")
+    }
+}
+
+fn git_cost_item_duration(item: &CostItem) -> String {
+    if item.squashed {
+        "—".to_string()
+    } else {
+        format_duration_secs(item.last_commit_epoch - item.first_commit_epoch)
+    }
+}
+
+pub fn print_git_cost(report: &GitCostReport, lang: Lang) {
+    println!("{}", i18n::git_cost_title(lang).bold());
+    println!(
+        "{}",
+        i18n::git_cost_subtitle(lang, &report.base_branch, report.lookback_secs as f64 / 3600.0).dimmed()
+    );
+    println!();
+
+    if report.items.is_empty() {
+        println!("{}", i18n::git_cost_empty(lang).yellow());
+        return;
+    }
+
+    let widest = report.items.iter().map(|i| i.label.chars().count()).max().unwrap_or(0);
+
+    for item in &report.items {
+        let duration = git_cost_item_duration(item);
+        let meta = i18n::git_cost_item_meta(lang, item.commit_count, item.turns_counted, &item.first_commit_date_display);
+        let cost_str = format!("${:.2}", item.cost_usd);
+        let cost_colored = match item.kind {
+            ItemKind::Branch => cost_str.cyan().to_string(),
+            ItemKind::MergedPr => cost_str.magenta().to_string(),
+        };
+        let squash_note = if item.squashed {
+            format!("  ({})", i18n::git_cost_squash_marker(lang))
+        } else {
+            String::new()
+        };
+        println!(
+            "  {label:<width$}  {cost:>10}   {duration:>7}   {meta}{squash_note}",
+            label = item.label,
+            width = widest,
+            cost = cost_colored,
+            duration = duration,
+            meta = meta.dimmed(),
+        );
+    }
+
+    println!();
+    if report.repo_turns_found == 0 {
+        println!("{}", i18n::git_cost_no_local_sessions(lang).yellow());
+    } else {
+        println!("{}", i18n::git_cost_footer(lang, report.repo_turns_found).dimmed());
+    }
+}
+
+pub fn git_cost_markdown(report: &GitCostReport, lang: Lang) -> String {
+    let mut out = String::new();
+    out.push_str(&format!(
+        "**{}** ({})\n\n",
+        i18n::git_cost_title(lang),
+        i18n::git_cost_subtitle(lang, &report.base_branch, report.lookback_secs as f64 / 3600.0)
+    ));
+
+    if report.items.is_empty() {
+        out.push_str(i18n::git_cost_empty(lang));
+        return out;
+    }
+
+    out.push_str("| | Cost | Duration | Commits | Turns matched | Since |\n|---|---|---|---|---|---|\n");
+    for item in &report.items {
+        let duration = git_cost_item_duration(item);
+        let squash_note = if item.squashed { format!(" ({})", i18n::git_cost_squash_marker(lang)) } else { String::new() };
+        out.push_str(&format!(
+            "| {} | ${:.2} | {} | {}{} | {} | {} |\n",
+            item.label, item.cost_usd, duration, item.commit_count, squash_note, item.turns_counted, item.first_commit_date_display
+        ));
+    }
+
+    out.push('\n');
+    out.push_str(&i18n::git_cost_footer(lang, report.repo_turns_found));
+    out
 }
 
 #[cfg(test)]
