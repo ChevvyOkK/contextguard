@@ -40,6 +40,7 @@ pub fn find_session_files(within_days: Option<u64>, lang: Lang) -> Result<Vec<Pa
         }
     }
 
-    files.sort_by(|a, b| b.0.cmp(&a.0));
+    // Newest first.
+    files.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
     Ok(files.into_iter().map(|(_, p)| p).collect())
 }

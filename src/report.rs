@@ -342,58 +342,6 @@ fn format_num(n: u64) -> String {
     result.chars().rev().collect()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn session_with(model: &str, usage: Usage) -> SessionStats {
-        SessionStats {
-            session_id: "s".into(),
-            turns: vec![crate::session::Turn { model: model.to_string(), usage, timestamp: None }],
-            ..Default::default()
-        }
-    }
-
-    #[test]
-    fn aggregate_sums_usage_across_sessions() {
-        let pricing = PricingTable::defaults();
-        let sessions = vec![
-            session_with(
-                "claude-sonnet-5",
-                Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-            ),
-            session_with(
-                "claude-sonnet-5",
-                Usage { input_tokens: 200, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-            ),
-        ];
-        let agg = aggregate(&sessions, &pricing);
-        assert_eq!(agg.sessions, 2);
-        assert_eq!(agg.usage.input_tokens, 300);
-        assert_eq!(agg.usage.output_tokens, 150);
-        assert!(agg.cost_usd > 0.0);
-    }
-
-    #[test]
-    fn cache_efficiency_is_zero_with_no_cache_usage() {
-        let usage = Usage { input_tokens: 100, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
-        assert_eq!(cache_efficiency(&usage), 0.0);
-    }
-
-    #[test]
-    fn cache_efficiency_reflects_high_reuse() {
-        let usage = Usage { input_tokens: 10, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 90 };
-        let eff = cache_efficiency(&usage);
-        assert!(eff > 85.0 && eff <= 100.0);
-    }
-
-    #[test]
-    fn format_num_adds_thousands_separators() {
-        assert_eq!(format_num(1234567), "1 234 567");
-        assert_eq!(format_num(42), "42");
-    }
-}
-
 /// Renders the context audit.
 ///
 /// Bars are proportional to occupancy so the shape of the answer is visible
@@ -539,3 +487,54 @@ fn json_string(s: &str) -> String {
     out
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn session_with(model: &str, usage: Usage) -> SessionStats {
+        SessionStats {
+            session_id: "s".into(),
+            turns: vec![crate::session::Turn { model: model.to_string(), usage, timestamp: None }],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn aggregate_sums_usage_across_sessions() {
+        let pricing = PricingTable::defaults();
+        let sessions = vec![
+            session_with(
+                "claude-sonnet-5",
+                Usage { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            ),
+            session_with(
+                "claude-sonnet-5",
+                Usage { input_tokens: 200, output_tokens: 100, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+            ),
+        ];
+        let agg = aggregate(&sessions, &pricing);
+        assert_eq!(agg.sessions, 2);
+        assert_eq!(agg.usage.input_tokens, 300);
+        assert_eq!(agg.usage.output_tokens, 150);
+        assert!(agg.cost_usd > 0.0);
+    }
+
+    #[test]
+    fn cache_efficiency_is_zero_with_no_cache_usage() {
+        let usage = Usage { input_tokens: 100, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 };
+        assert_eq!(cache_efficiency(&usage), 0.0);
+    }
+
+    #[test]
+    fn cache_efficiency_reflects_high_reuse() {
+        let usage = Usage { input_tokens: 10, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 90 };
+        let eff = cache_efficiency(&usage);
+        assert!(eff > 85.0 && eff <= 100.0);
+    }
+
+    #[test]
+    fn format_num_adds_thousands_separators() {
+        assert_eq!(format_num(1234567), "1 234 567");
+        assert_eq!(format_num(42), "42");
+    }
+}

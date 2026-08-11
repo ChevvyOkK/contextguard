@@ -90,10 +90,10 @@ pub struct SessionStats {
     pub tool_call_log: Vec<ToolCall>,
     /// Everything that occupies the context window, in the order it arrived.
     pub context_entries: Vec<ContextEntry>,
-    /// Prompt tokens on the session's first response: input + cache creation
-    /// + cache read. The system prompt and the tool schemas are never written
-    /// to the transcript, so this total minus the visible content before it
-    /// is the only handle we have on their size.
+    /// Prompt tokens on the session's first response — fresh input plus cache
+    /// creation plus cache read. The system prompt and the tool schemas are
+    /// never written to the transcript, so this total minus the visible
+    /// content before it is the only handle we have on their size.
     pub first_prompt_tokens: Option<u64>,
     /// ISO 8601 timestamp of the first record seen in the file. Used to
     /// bucket a session into a calendar day for `--push`; a session that

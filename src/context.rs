@@ -265,7 +265,7 @@ pub fn audit(sessions: &[SessionStats], pricing: &PricingTable) -> ContextAudit 
         });
     }
 
-    categories.sort_by(|a, b| b.tokens.cmp(&a.tokens));
+    categories.sort_by_key(|c| std::cmp::Reverse(c.tokens));
     let total_tokens = categories.iter().map(|c| c.tokens).sum();
     let categories = collapse_tail(categories, total_tokens);
 
@@ -273,14 +273,14 @@ pub fn audit(sessions: &[SessionStats], pricing: &PricingTable) -> ContextAudit 
         .into_iter()
         .map(|(path, count)| RepeatedRead { path, count })
         .collect();
-    repeated_reads.sort_by(|a, b| b.count.cmp(&a.count));
+    repeated_reads.sort_by_key(|r| std::cmp::Reverse(r.count));
     repeated_reads.truncate(5);
 
     let mut mcp_servers: Vec<McpServerUsage> = mcp_calls
         .into_iter()
         .map(|(server, calls)| McpServerUsage { server, calls })
         .collect();
-    mcp_servers.sort_by(|a, b| b.calls.cmp(&a.calls));
+    mcp_servers.sort_by_key(|s| std::cmp::Reverse(s.calls));
 
     // Priced at the blend the sessions actually ran on rather than a fixed
     // tier, and at the cache-read rate: carried context is by definition
