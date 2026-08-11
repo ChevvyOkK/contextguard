@@ -2,6 +2,8 @@ mod budget;
 mod claude_md;
 mod context;
 mod discovery;
+mod git_cost;
+mod gitlog;
 mod i18n;
 mod lint;
 mod optimize;
@@ -103,6 +105,31 @@ enum Command {
         /// append /slack to a channel webhook URL.
         #[arg(long)]
         webhook_url: Option<String>,
+    },
+    /// Attribute local session cost to git branches and merged PRs, by time.
+    /// Must be run inside a git working tree.
+    GitCost {
+        /// Branch to diff feature branches against (default: origin/HEAD,
+        /// falling back to a local main or master).
+        #[arg(long)]
+        base: Option<String>,
+
+        /// Only scan merged-PR history on the base branch back this many
+        /// days (default: unbounded, matching --days elsewhere in this
+        /// tool). Live feature branches are unaffected — their range is
+        /// already bounded by where they diverged from the base branch.
+        #[arg(long)]
+        since_days: Option<u64>,
+
+        /// Hours of work assumed to happen before a commit is made, added
+        /// to a branch/PR's cost window so time spent before the first
+        /// commit isn't dropped. Default: 2.
+        #[arg(long, default_value_t = 2.0)]
+        lookback_hours: f64,
+
+        /// "text" (default) or "markdown"
+        #[arg(long, value_enum, default_value_t = LintFormat::Text)]
+        format: LintFormat,
     },
 }
 
@@ -219,6 +246,25 @@ fn main() {
                     }
                 }
                 std::process::exit(1);
+            }
+            return;
+        }
+        Some(Command::GitCost { base, since_days, lookback_hours, format }) => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            let opts = git_cost::BuildOptions {
+                base_branch: base.as_deref(),
+                since_days,
+                lookback_secs: (lookback_hours * 3600.0) as i64,
+            };
+            match git_cost::build_report(&cwd, &sessions, &pricing, &opts) {
+                Ok(report) => match format {
+                    LintFormat::Text => report::print_git_cost(&report, lang),
+                    LintFormat::Markdown => println!("{}", report::git_cost_markdown(&report, lang)),
+                },
+                Err(e) => {
+                    eprintln!("{}", i18n::err_git_cost(lang, &e).red());
+                    std::process::exit(1);
+                }
             }
             return;
         }
