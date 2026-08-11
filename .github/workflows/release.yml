@@ -20,6 +20,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             archive_ext: tar.gz
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            archive_ext: tar.gz
           - os: macos-latest
             target: x86_64-apple-darwin
             archive_ext: tar.gz
@@ -38,6 +41,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+
+      # The ARM Linux build is cross-compiled from an x86_64 runner, so it
+      # needs a matching linker — rustc can emit the objects but can't link
+      # them with the host gcc. Nothing else has to be cross-installed:
+      # reqwest is on rustls-tls, so there's no OpenSSL/libc dependency to
+      # find a foreign-arch copy of.
+      - name: Install ARM Linux cross-linker
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
       - run: cargo build --release --target ${{ matrix.target }}
 
       - name: Package (unix)
