@@ -2,6 +2,7 @@ mod claude_md;
 mod context;
 mod discovery;
 mod i18n;
+mod lint;
 mod optimize;
 mod pricing;
 mod push;
@@ -34,6 +35,14 @@ enum ContextFormat {
     Json,
 }
 
+/// Output format for `contextguard lint`. Markdown is what the PR-bot
+/// GitHub Action posts as a comment.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum LintFormat {
+    Text,
+    Markdown,
+}
+
 #[derive(clap::Subcommand, Debug)]
 enum Command {
     /// Break down what is occupying the context window, and what re-sending
@@ -42,6 +51,30 @@ enum Command {
         /// "text" (default) or "json"
         #[arg(long, value_enum, default_value_t = ContextFormat::Text)]
         format: ContextFormat,
+    },
+    /// Diagnose a CLAUDE.md: boilerplate, duplicate lines, references to
+    /// files or servers nothing in the analyzed sessions touched — and
+    /// what each costs.
+    Lint {
+        /// Path to the file (default: ./CLAUDE.md)
+        path: Option<PathBuf>,
+
+        /// Remove the safe-to-remove findings (boilerplate, duplicates) and
+        /// write the result. Always prints what changed first.
+        #[arg(long)]
+        fix: bool,
+
+        /// "text" (default) or "markdown"
+        #[arg(long, value_enum, default_value_t = LintFormat::Text)]
+        format: LintFormat,
+
+        /// Compare PATH against this baseline file — e.g. the base branch's
+        /// CLAUDE.md — and report the token/cost delta instead of a full
+        /// lint. This is what the GitHub Action uses; a missing baseline
+        /// (a file the change adds for the first time) is treated as empty
+        /// rather than an error.
+        #[arg(long)]
+        compare_to: Option<PathBuf>,
     },
 }
 
@@ -91,6 +124,11 @@ fn main() {
     let cli = Cli::parse();
     let lang = Lang::detect(cli.lang.as_deref());
 
+    // Errors here (e.g. no home directory) are always fatal — every mode of
+    // this tool needs to know where session files would live. An *empty*
+    // result is not fatal, though: `lint` and `context` both work, on
+    // purpose, from a machine with zero local sessions (a CI runner has
+    // none), so that check happens below, only on the path that needs it.
     let files = match discovery::find_session_files(cli.days, lang) {
         Ok(files) => files,
         Err(e) => {
@@ -98,11 +136,6 @@ fn main() {
             std::process::exit(1);
         }
     };
-
-    if files.is_empty() {
-        println!("{}", i18n::no_session_files_found(lang).yellow());
-        return;
-    }
 
     let mut sessions = Vec::with_capacity(files.len());
     for file in &files {
@@ -113,6 +146,28 @@ fn main() {
     }
 
     let pricing = pricing::PricingTable::defaults();
+
+    match cli.command {
+        Some(Command::Context { format }) => {
+            let audit = context::audit(&sessions, &pricing);
+            match format {
+                ContextFormat::Text => report::print_context_audit(&audit, lang),
+                ContextFormat::Json => println!("{}", report::context_audit_json(&audit)),
+            }
+            return;
+        }
+        Some(Command::Lint { path, fix, format, compare_to }) => {
+            run_lint(path, fix, format, compare_to, &sessions, lang);
+            return;
+        }
+        None => {}
+    }
+
+    if files.is_empty() {
+        println!("{}", i18n::no_session_files_found(lang).yellow());
+        return;
+    }
+
     let agg = report::aggregate(&sessions, &pricing);
 
     let claude_md_path = cli.claude_md.or_else(|| {
@@ -121,15 +176,6 @@ fn main() {
     });
     let claude_md_report = claude_md_path.as_deref().and_then(|p| claude_md::analyze(p, lang).ok());
     let savings_report = savings::read();
-
-    if let Some(Command::Context { format }) = cli.command {
-        let audit = context::audit(&sessions, &pricing);
-        match format {
-            ContextFormat::Text => report::print_context_audit(&audit, lang),
-            ContextFormat::Json => println!("{}", report::context_audit_json(&audit)),
-        }
-        return;
-    }
 
     match cli.format {
         OutputFormat::Text => {
@@ -160,5 +206,61 @@ fn main() {
                 Err(e) => println!("{}", i18n::push_result_line(lang, &outcome.day, false, &e).red()),
             }
         }
+    }
+}
+
+fn run_lint(path: Option<PathBuf>, fix: bool, format: LintFormat, compare_to: Option<PathBuf>, sessions: &[session::SessionStats], lang: Lang) {
+    let path = path.unwrap_or_else(|| PathBuf::from("CLAUDE.md"));
+
+    let current = match lint::analyze(&path, sessions, lang) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("{}", e.red());
+            std::process::exit(1);
+        }
+    };
+
+    if let Some(baseline_path) = compare_to {
+        let baseline = match lint::analyze_optional(&baseline_path, sessions, lang) {
+            Ok(r) => r,
+            Err(e) => {
+                eprintln!("{}", e.red());
+                std::process::exit(1);
+            }
+        };
+        match format {
+            LintFormat::Text => report::print_lint_compare(&baseline, &current, lang),
+            LintFormat::Markdown => println!("{}", report::lint_compare_markdown(&baseline, &current, lang)),
+        }
+        return;
+    }
+
+    match format {
+        LintFormat::Text => report::print_lint(&current, lang),
+        LintFormat::Markdown => println!("{}", report::lint_markdown(&current, lang)),
+    }
+
+    if fix {
+        // Already read successfully above (lint::analyze), so re-reading
+        // here to get the exact original bytes to edit is not expected to
+        // fail — but the file is real and external, so handle it rather
+        // than unwrap.
+        let content = match std::fs::read_to_string(&path) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("{}", i18n::err_read_file(lang, &format!("{path:?}"), &e.to_string()).red());
+                std::process::exit(1);
+            }
+        };
+        let (new_content, removed) = lint::apply_fixes(&content, &current);
+        report::print_lint_fix_preview(&removed, lang);
+        if removed.is_empty() {
+            return;
+        }
+        if let Err(e) = std::fs::write(&path, &new_content) {
+            eprintln!("{}", i18n::err_write_file(lang, &format!("{path:?}"), &e.to_string()).red());
+            std::process::exit(1);
+        }
+        report::print_lint_fix_done(removed.len(), new_content.lines().count(), lang);
     }
 }

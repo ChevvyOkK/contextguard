@@ -5,6 +5,7 @@ use owo_colors::OwoColorize;
 use crate::claude_md::ClaudeMdReport;
 use crate::context::{self, ContextAudit, Provenance};
 use crate::i18n::{self, Lang};
+use crate::lint::{Finding, LintReport, Reason};
 use crate::optimize;
 use crate::pricing::PricingTable;
 use crate::savings::SavingsReport;
@@ -465,6 +466,170 @@ pub fn context_audit_json(audit: &ContextAudit) -> String {
         reads.join(","),
         servers.join(","),
     )
+}
+
+// --- lint ----------------------------------------------------------------
+
+/// Turns a structured `Reason` into a sentence in the requested language.
+/// The only place lint findings get translated — src/lint.rs stores data,
+/// not prose, the same split context.rs uses for `Provenance`.
+fn reason_text(lang: Lang, reason: &Reason) -> String {
+    match reason {
+        Reason::Boilerplate { phrase } => i18n::lint_reason_boilerplate(lang, phrase),
+        Reason::Duplicate { origin_line } => i18n::lint_reason_duplicate(lang, *origin_line),
+        Reason::StalePath { token } => i18n::lint_reason_stale_path(lang, token),
+        Reason::UnusedMcpServer { server } => i18n::lint_reason_unused_server(lang, server),
+    }
+}
+
+fn print_lint_findings(findings: &[Finding], lang: Lang) {
+    let kind_width = findings.iter().map(|f| i18n::lint_kind_label(lang, f.kind()).chars().count()).max().unwrap_or(0);
+    for f in findings {
+        let label = i18n::lint_kind_label(lang, f.kind());
+        println!("  {label:<kind_width$}  L{line:<5} {text}", line = f.line, text = f.text);
+        println!("  {:kind_width$}          {}", "", reason_text(lang, &f.reason).dimmed());
+    }
+}
+
+fn print_lint_cost_lines(report: &LintReport, lang: Lang) {
+    println!("{}", i18n::lint_cost_per_1k(lang, report.cost_per_1k_requests_usd).dimmed());
+    match report.monthly_cost_usd {
+        Some(monthly) => {
+            println!("{}", i18n::lint_monthly_cost(lang, monthly));
+            if let Some(savings) = report.fixable_monthly_savings_usd {
+                if savings > 0.0 {
+                    println!("{}", i18n::lint_monthly_savings(lang, savings).green());
+                }
+            }
+        }
+        None => println!("{}", i18n::lint_no_local_volume(lang).dimmed()),
+    }
+}
+
+pub fn print_lint(report: &LintReport, lang: Lang) {
+    println!("{}", i18n::lint_title(lang, &report.path).bold());
+    println!("{}", i18n::lint_summary(lang, report.line_count, report.total_tokens).dimmed());
+    println!();
+
+    if report.findings.is_empty() {
+        println!("{}", i18n::lint_clean(lang).green());
+    } else {
+        print_lint_findings(&report.findings, lang);
+        println!();
+        let fixable = report.findings.iter().filter(|f| f.kind().auto_fixable()).count();
+        if fixable > 0 {
+            println!("{}", i18n::lint_fixable_note(lang, fixable, report.fixable_tokens).yellow());
+        }
+    }
+
+    println!();
+    print_lint_cost_lines(report, lang);
+}
+
+pub fn lint_markdown(report: &LintReport, lang: Lang) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("**{}**\n\n", i18n::lint_title(lang, &report.path)));
+    out.push_str(&format!("{}\n\n", i18n::lint_summary(lang, report.line_count, report.total_tokens)));
+
+    if report.findings.is_empty() {
+        out.push_str(&format!("{}\n\n", i18n::lint_clean(lang)));
+    } else {
+        for f in &report.findings {
+            out.push_str(&format!(
+                "- **{}** (line {}): `{}`\n  {}\n",
+                i18n::lint_kind_label(lang, f.kind()),
+                f.line,
+                f.text,
+                reason_text(lang, &f.reason)
+            ));
+        }
+        out.push('\n');
+        let fixable = report.findings.iter().filter(|f| f.kind().auto_fixable()).count();
+        if fixable > 0 {
+            out.push_str(&format!("{}\n\n", i18n::lint_fixable_note(lang, fixable, report.fixable_tokens)));
+        }
+    }
+
+    out.push_str(&format!("{}\n", i18n::lint_cost_per_1k(lang, report.cost_per_1k_requests_usd)));
+    match report.monthly_cost_usd {
+        Some(monthly) => out.push_str(&format!("{}\n", i18n::lint_monthly_cost(lang, monthly))),
+        None => out.push_str(&format!("_{}_\n", i18n::lint_no_local_volume(lang))),
+    }
+    out
+}
+
+pub fn print_lint_fix_preview(removed: &[Finding], lang: Lang) {
+    if removed.is_empty() {
+        println!("{}", i18n::lint_fix_nothing(lang).dimmed());
+        return;
+    }
+    println!();
+    println!("{}", i18n::lint_fix_preview_header(lang, removed.len()).bold());
+    for f in removed {
+        println!("  {} L{:<5} {}", "-".red(), f.line, f.text);
+        println!("    {}", reason_text(lang, &f.reason).dimmed());
+    }
+}
+
+pub fn print_lint_fix_done(removed: usize, remaining_lines: usize, lang: Lang) {
+    println!();
+    println!("{}", i18n::lint_fix_done(lang, removed, remaining_lines).green());
+}
+
+/// Token delta between two lint reports of the same file at different
+/// revisions. Positive means the change added tokens.
+fn token_delta(baseline: &LintReport, current: &LintReport) -> i64 {
+    current.total_tokens as i64 - baseline.total_tokens as i64
+}
+
+pub fn print_lint_compare(baseline: &LintReport, current: &LintReport, lang: Lang) {
+    println!("{}", i18n::lint_compare_title(lang, &baseline.path, &current.path).bold());
+
+    let delta = token_delta(baseline, current);
+    if delta == 0 {
+        println!("{}", i18n::lint_compare_no_change(lang));
+        return;
+    }
+    println!("{}", i18n::lint_compare_delta(lang, delta, baseline.total_tokens, current.total_tokens));
+
+    let per_1k = (delta.unsigned_abs() as f64 / 1_000_000.0)
+        * PricingTable::defaults().for_model("claude-sonnet-5").cache_read_per_mtok
+        * 1000.0;
+    println!(
+        "{}",
+        if delta > 0 { i18n::lint_compare_price_added(lang, per_1k) } else { i18n::lint_compare_price_saved(lang, per_1k) }
+    );
+
+    if let (Some(before), Some(after)) = (baseline.monthly_cost_usd, current.monthly_cost_usd) {
+        println!("{}", i18n::lint_compare_monthly(lang, (after - before).abs()));
+    }
+}
+
+pub fn lint_compare_markdown(baseline: &LintReport, current: &LintReport, lang: Lang) -> String {
+    let mut out = String::new();
+    out.push_str(&format!("**{}**\n\n", i18n::lint_compare_title(lang, &baseline.path, &current.path)));
+
+    let delta = token_delta(baseline, current);
+    if delta == 0 {
+        out.push_str(&format!("{}\n", i18n::lint_compare_no_change(lang)));
+        return out;
+    }
+    out.push_str(&format!("{}\n\n", i18n::lint_compare_delta(lang, delta, baseline.total_tokens, current.total_tokens)));
+
+    let per_1k = (delta.unsigned_abs() as f64 / 1_000_000.0)
+        * PricingTable::defaults().for_model("claude-sonnet-5").cache_read_per_mtok
+        * 1000.0;
+    out.push_str(&format!(
+        "{}\n",
+        if delta > 0 { i18n::lint_compare_price_added(lang, per_1k) } else { i18n::lint_compare_price_saved(lang, per_1k) }
+    ));
+
+    if let (Some(before), Some(after)) = (baseline.monthly_cost_usd, current.monthly_cost_usd) {
+        out.push_str(&format!("{}\n", i18n::lint_compare_monthly(lang, (after - before).abs())));
+    }
+
+    out.push_str(&format!("\n_{}_\n", i18n::lint_compare_footer(lang)));
+    out
 }
 
 /// Minimal JSON string escaping. Paths on Windows are full of backslashes,

@@ -1,0 +1,137 @@
+name: "ContextGuard: CLAUDE.md cost check"
+description: >-
+  Comments on a pull request with the token and cost delta a CLAUDE.md
+  change adds or removes, using the same math as
+  `contextguard lint --compare-to`. Posts nothing when the PR doesn't touch
+  the file, and updates its own comment on later pushes instead of piling
+  up duplicates.
+author: "ChevvyOkK"
+branding:
+  icon: "shield"
+  color: "purple"
+
+inputs:
+  claude-md-path:
+    description: "Path to the CLAUDE.md to check, relative to the repo root."
+    required: false
+    default: "CLAUDE.md"
+  version:
+    description: >-
+      contextguard release tag to install, e.g. "v0.2.0". Defaults to the
+      latest release.
+    required: false
+    default: "latest"
+  github-token:
+    description: "Token used to read the PR diff and post the comment."
+    required: false
+    default: ${{ github.token }}
+
+runs:
+  using: "composite"
+  steps:
+    # Requires the checkout step in the calling workflow to have fetched
+    # enough history to see both commits — `fetch-depth: 0` is the safe
+    # default; a shallow checkout makes this `git diff` fail loudly (by
+    # design: reporting "unchanged" on a checkout that's simply too shallow
+    # to know would be a silent wrong answer, not a safe one).
+    - name: Check whether CLAUDE.md changed
+      id: changed
+      shell: bash
+      run: |
+        set -euo pipefail
+        base="${{ github.event.pull_request.base.sha }}"
+        head="${{ github.event.pull_request.head.sha }}"
+        if git diff --name-only "$base" "$head" -- "${{ inputs.claude-md-path }}" | grep -q .; then
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+        else
+          echo "changed=false" >> "$GITHUB_OUTPUT"
+        fi
+
+    - name: Extract the base branch's version of the file
+      if: steps.changed.outputs.changed == 'true'
+      id: extract
+      shell: bash
+      run: |
+        set -euo pipefail
+        work="$RUNNER_TEMP/contextguard-lint"
+        mkdir -p "$work"
+        base="${{ github.event.pull_request.base.sha }}"
+        # A PR adding CLAUDE.md for the first time has no base copy — `git
+        # show` fails, and an empty baseline is exactly the right answer
+        # (the whole file is then "added"), not an error.
+        git show "$base:${{ inputs.claude-md-path }}" > "$work/base.md" 2>/dev/null || : > "$work/base.md"
+        echo "dir=$work" >> "$GITHUB_OUTPUT"
+
+    - name: Install contextguard
+      if: steps.changed.outputs.changed == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        case "$RUNNER_OS-$RUNNER_ARCH" in
+          Linux-X64)     asset="contextguard-x86_64-unknown-linux-gnu.tar.gz" ;;
+          Linux-ARM64)   asset="contextguard-aarch64-unknown-linux-gnu.tar.gz" ;;
+          macOS-X64)     asset="contextguard-x86_64-apple-darwin.tar.gz" ;;
+          macOS-ARM64)   asset="contextguard-aarch64-apple-darwin.tar.gz" ;;
+          Windows-X64)   asset="contextguard-x86_64-pc-windows-msvc.zip" ;;
+          *)
+            echo "::error::No contextguard release build for $RUNNER_OS-$RUNNER_ARCH" >&2
+            exit 1
+            ;;
+        esac
+
+        tag="${{ inputs.version }}"
+        if [ "$tag" = "latest" ]; then
+          url="https://github.com/ChevvyOkK/contextguard/releases/latest/download/$asset"
+        else
+          url="https://github.com/ChevvyOkK/contextguard/releases/download/$tag/$asset"
+        fi
+
+        work="${{ steps.extract.outputs.dir }}"
+        curl -sSfL "$url" -o "$work/$asset"
+        cd "$work"
+        case "$asset" in
+          *.tar.gz) tar xzf "$asset" ;;
+          *.zip) unzip -oq "$asset" ;;
+        esac
+        chmod +x contextguard 2>/dev/null || true
+        echo "$work" >> "$GITHUB_PATH"
+
+    - name: Run contextguard lint --compare-to
+      if: steps.changed.outputs.changed == 'true'
+      id: lint
+      shell: bash
+      run: |
+        set -euo pipefail
+        exe="contextguard"
+        [ "$RUNNER_OS" = "Windows" ] && exe="contextguard.exe"
+        out="$("${{ steps.extract.outputs.dir }}/$exe" lint "${{ inputs.claude-md-path }}" \
+          --compare-to "${{ steps.extract.outputs.dir }}/base.md" --format markdown)"
+        {
+          echo "comment<<CONTEXTGUARD_LINT_EOF"
+          echo "$out"
+          echo "CONTEXTGUARD_LINT_EOF"
+        } >> "$GITHUB_OUTPUT"
+
+    # A plain `gh pr comment` would post a new comment on every push to the
+    # PR. Finding and editing the marked one instead means the thread stays
+    # at one comment that always reflects the latest diff, not a growing
+    # pile of stale ones.
+    - name: Post or update the PR comment
+      if: steps.changed.outputs.changed == 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+        REPO: ${{ github.repository }}
+        PR_NUMBER: ${{ github.event.pull_request.number }}
+        MARKER: "<!-- contextguard-claude-md-lint -->"
+        LINT_OUTPUT: ${{ steps.lint.outputs.comment }}
+      run: |
+        set -euo pipefail
+        body="$MARKER"$'\n\n'"$LINT_OUTPUT"
+        existing="$(gh api "repos/$REPO/issues/$PR_NUMBER/comments" --paginate \
+          --jq '.[] | select(.body | startswith("'"$MARKER"'")) | .id' | head -n1)"
+        if [ -n "$existing" ]; then
+          gh api -X PATCH "repos/$REPO/issues/comments/$existing" -f body="$body" >/dev/null
+        else
+          gh api "repos/$REPO/issues/$PR_NUMBER/comments" -f body="$body" >/dev/null
+        fi
