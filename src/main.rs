@@ -8,6 +8,7 @@ mod pricing;
 mod push;
 mod report;
 mod savings;
+mod savings_report;
 mod session;
 mod timeutil;
 
@@ -75,6 +76,14 @@ enum Command {
         /// rather than an error.
         #[arg(long)]
         compare_to: Option<PathBuf>,
+    },
+    /// What the plugin's hooks actually saved, by month — measured, not
+    /// estimated, and amortized across the turns each intervention was
+    /// still ahead of.
+    Savings {
+        /// "text" (default) or "markdown"
+        #[arg(long, value_enum, default_value_t = LintFormat::Text)]
+        format: LintFormat,
     },
 }
 
@@ -158,6 +167,14 @@ fn main() {
         }
         Some(Command::Lint { path, fix, format, compare_to }) => {
             run_lint(path, fix, format, compare_to, &sessions, lang);
+            return;
+        }
+        Some(Command::Savings { format }) => {
+            let months = savings_report::build(&sessions, &pricing);
+            match format {
+                LintFormat::Text => report::print_savings_report(&months, lang),
+                LintFormat::Markdown => println!("{}", report::savings_report_markdown(&months, lang)),
+            }
             return;
         }
         None => {}

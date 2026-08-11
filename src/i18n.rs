@@ -804,3 +804,119 @@ pub fn lint_compare_footer(lang: Lang) -> &'static str {
     }
 }
 
+// --- savings report --------------------------------------------------------
+
+const EN_MONTHS: [&str; 12] = [
+    "January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
+    "December",
+];
+// Genitive case ("of August"), which is what "<Month> <Year>" grammatically
+// needs in Russian — the nominative "Август" would read as ungrammatical
+// next to a year the way English doesn't mark this distinction at all.
+const RU_MONTHS_GENITIVE: [&str; 12] = [
+    "января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября", "октября", "ноября",
+    "декабря",
+];
+
+/// "2026-08" -> "August 2026" / "августа 2026". Falls back to the raw
+/// "YYYY-MM" key itself for anything that doesn't parse — a display quirk,
+/// not a reason to drop data that was otherwise groupable.
+pub fn savings_month_label(lang: Lang, month_key: &str) -> String {
+    let parsed = month_key.split_once('-').and_then(|(y, m)| Some((y, m.parse::<usize>().ok()?)));
+    match parsed {
+        Some((year, m)) if (1..=12).contains(&m) => match lang {
+            Lang::En => format!("{} {year}", EN_MONTHS[m - 1]),
+            Lang::Ru => format!("{} {year}", RU_MONTHS_GENITIVE[m - 1]),
+        },
+        _ => month_key.to_string(),
+    }
+}
+
+pub fn savings_title(lang: Lang, month_label: &str) -> String {
+    match lang {
+        Lang::En => format!("Savings report — {month_label}"),
+        Lang::Ru => format!("Отчёт об экономии — {month_label}"),
+    }
+}
+
+pub fn savings_headline(lang: Lang, tokens: u64, usd: f64) -> String {
+    match lang {
+        Lang::En => format!("Saved by the plugin: {tokens} tokens ≈ ${usd:.2}"),
+        Lang::Ru => format!("Сэкономлено плагином: {tokens} токенов ≈ ${usd:.2}"),
+    }
+}
+
+pub fn savings_amortized_note(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "(amortized: priced by how many turns of the session were still ahead of each intervention)",
+        Lang::Ru => "(с амортизацией: оценено по числу ходов сессии, оставшихся после каждого вмешательства)",
+    }
+}
+
+pub fn savings_from_line(lang: Lang, interventions: u64, sessions: usize) -> String {
+    match lang {
+        Lang::En => format!("From {interventions} intervention(s) across {sessions} session(s) this month"),
+        Lang::Ru => format!("Из {interventions} вмешательств(а) в {sessions} сессии(ях) за месяц"),
+    }
+}
+
+pub fn savings_partial_amortization_note(lang: Lang, amortized: u64, total: u64) -> String {
+    match lang {
+        Lang::En => format!(
+            "{amortized} of {total} could be matched to a session and amortized; \
+the rest are counted once, which understates their real value."
+        ),
+        Lang::Ru => format!(
+            "{amortized} из {total} удалось сопоставить с сессией и амортизировать; \
+остальные учтены один раз, то есть их реальная ценность занижена."
+        ),
+    }
+}
+
+pub fn savings_no_amortization_note(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "None of these could be matched to a locally-parsed session (older plugin \
+version, or the session has since rotated out of --days), so each is counted once — a floor, \
+not the real amortized value.",
+        Lang::Ru => "Ни одно не удалось сопоставить с локально разобранной сессией (старая версия \
+плагина, либо сессия уже выпала из --days), поэтому каждое учтено один раз — это нижняя оценка, \
+а не реальная амортизированная ценность.",
+    }
+}
+
+pub fn savings_top_command(lang: Lang, label: &str, tokens: u64) -> String {
+    match lang {
+        Lang::En => format!("Top source: {label} output truncated — {tokens} tokens"),
+        Lang::Ru => format!("Главный источник: обрезка вывода «{label}» — {tokens} токенов"),
+    }
+}
+
+pub fn savings_grep_cap_line(lang: Lang, count: u64) -> String {
+    match lang {
+        Lang::En => format!(
+            "Also capped {count} unbounded Grep search(es) this month — no token estimate: \
+nothing to compare against without running the search twice."
+        ),
+        Lang::Ru => format!(
+            "Также ограничено {count} неограниченных поисков Grep за месяц — без оценки токенов: \
+не с чем сравнивать без повторного запуска поиска."
+        ),
+    }
+}
+
+pub fn savings_nothing_this_month(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "No bash-output truncations this month.",
+        Lang::Ru => "В этом месяце обрезок вывода Bash не было.",
+    }
+}
+
+pub fn savings_empty(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "No plugin activity found at all. Install the plugin \
+(github.com/ChevvyOkK/contextguard-plugin) and this report fills in as it runs.",
+        Lang::Ru => "Активности плагина не найдено вообще. Установите плагин \
+(github.com/ChevvyOkK/contextguard-plugin) — отчёт начнёт заполняться по мере его работы.",
+    }
+}
+
