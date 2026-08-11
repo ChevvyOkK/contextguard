@@ -60,7 +60,7 @@ struct DayBucket {
 /// First 10 chars of an ISO 8601 timestamp is its calendar date
 /// ("2026-08-01T12:02:49.435Z" -> "2026-08-01"); falls back to "unknown"
 /// for a session with no timestamp at all rather than dropping its data.
-fn day_key(timestamp: Option<&str>) -> String {
+pub(crate) fn day_key(timestamp: Option<&str>) -> String {
     match timestamp.and_then(|t| t.get(0..10)) {
         Some(day) => day.to_string(),
         None => "unknown".to_string(),
@@ -191,7 +191,7 @@ pub fn push_snapshots(
 /// "what's today's date" would be a heavy dependency for one string. The
 /// system clock plus days-since-epoch arithmetic is enough for a
 /// same-machine comparison against `day_key`'s YYYY-MM-DD format.
-fn chrono_free_today() -> String {
+pub(crate) fn chrono_free_today() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);

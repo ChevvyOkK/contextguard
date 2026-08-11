@@ -325,6 +325,33 @@ entries are still counted, just at the floor).
 
 <br>
 
+## 🚨 `contextguard budget` — a local spend threshold
+
+Fully local: sums cost from the session transcripts already on disk for
+today or the current calendar month, compares it to `--max`, and exits
+non-zero if it's crossed — so it can gate a script or a pre-commit-style
+check without an account or a network call.
+
+```bash
+contextguard budget --max 50 --period month
+# exits 1 and prints in red if $50 has been crossed this calendar month,
+# exits 0 and prints in green otherwise
+```
+
+Add `--webhook-url` (or set `$CONTEXTGUARD_BUDGET_WEBHOOK`) to also post a
+Slack/Discord-compatible message when the threshold is crossed — the same
+payload shape the dashboard's own team-level budget alerts send, just
+usable without ever pushing data anywhere. A delivery failure is reported
+but doesn't change the exit code: the budget verdict is real regardless of
+whether the notification made it out.
+
+This is a different mechanism from the dashboard's team-level budget
+alerts (which need an account and `--push`'d data, and fire from the
+server on every ingest) — this one works for someone who has never pushed
+anything anywhere.
+
+<br>
+
 ## ⚙️ Flags reference
 
 Global flags apply to every mode:
@@ -364,6 +391,14 @@ Headline report (no subcommand):
 | Flag | Value | Default | Does |
 |---|---|---|---|
 | `--format <FORMAT>` | `text` \| `markdown` | `text` | `markdown` for pasting into a report |
+
+`contextguard budget --max <USD> [--period daily|monthly] [--webhook-url <URL>]`:
+
+| Flag | Value | Default | Does |
+|---|---|---|---|
+| `--max <USD>` | number | — (required) | Threshold; exits 1 if crossed |
+| `--period <PERIOD>` | `daily` \| `monthly` | `monthly` | Which window to sum spend over |
+| `--webhook-url <URL>` | url | `$CONTEXTGUARD_BUDGET_WEBHOOK` | Slack/Discord-compatible POST when crossed |
 
 `--push` sends **one row per calendar day**: token counts by category,
 session count, and estimated cost, plus the companion

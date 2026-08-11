@@ -9,6 +9,7 @@ use crate::lint::{Finding, LintReport, Reason};
 use crate::optimize;
 use crate::pricing::PricingTable;
 use crate::savings::SavingsReport;
+use crate::budget::BudgetCheck;
 use crate::savings_report::MonthlySavings;
 use crate::session::{SessionStats, Usage};
 
@@ -746,6 +747,18 @@ pub fn savings_report_markdown(months: &[MonthlySavings], lang: Lang) -> String 
         return i18n::savings_empty(lang).to_string();
     }
     months.iter().map(|m| month_savings_markdown(m, lang)).collect::<Vec<_>>().join("\n")
+}
+
+// --- budget --------------------------------------------------------------
+
+pub fn print_budget_check(check: &BudgetCheck, lang: Lang) {
+    let line = i18n::budget_status_line(lang, &check.period_key, check.spend_usd, check.max_usd);
+    if check.crossed() {
+        println!("{}", line.red().bold());
+        println!("{}", i18n::budget_crossed_note(lang).dimmed());
+    } else {
+        println!("{}", line.green());
+    }
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+mod budget;
 mod claude_md;
 mod context;
 mod discovery;
@@ -85,6 +86,30 @@ enum Command {
         #[arg(long, value_enum, default_value_t = LintFormat::Text)]
         format: LintFormat,
     },
+    /// Check local spend for the period against a threshold. Fully local —
+    /// no account, no --push. Exits non-zero if the threshold is crossed,
+    /// so this can gate a script.
+    Budget {
+        /// Threshold in USD. Required — there is no sane default to guess.
+        #[arg(long)]
+        max: f64,
+
+        /// "daily" or "monthly" (default: monthly)
+        #[arg(long, value_enum, default_value_t = PeriodArg::Monthly)]
+        period: PeriodArg,
+
+        /// Post a Slack/Discord-compatible message here if the threshold is
+        /// crossed (default: $CONTEXTGUARD_BUDGET_WEBHOOK). For Discord,
+        /// append /slack to a channel webhook URL.
+        #[arg(long)]
+        webhook_url: Option<String>,
+    },
+}
+
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum PeriodArg {
+    Daily,
+    Monthly,
 }
 
 /// ContextGuard — local audit of Claude Code token spend. Nothing is sent
@@ -174,6 +199,26 @@ fn main() {
             match format {
                 LintFormat::Text => report::print_savings_report(&months, lang),
                 LintFormat::Markdown => println!("{}", report::savings_report_markdown(&months, lang)),
+            }
+            return;
+        }
+        Some(Command::Budget { max, period, webhook_url }) => {
+            let period = match period {
+                PeriodArg::Daily => budget::Period::Daily,
+                PeriodArg::Monthly => budget::Period::Monthly,
+            };
+            let check = budget::check_today(&sessions, &pricing, period, max);
+            report::print_budget_check(&check, lang);
+
+            if check.crossed() {
+                let webhook = webhook_url.or_else(|| std::env::var("CONTEXTGUARD_BUDGET_WEBHOOK").ok());
+                if let Some(url) = webhook {
+                    match budget::notify_webhook(&url, &check) {
+                        Ok(()) => println!("{}", i18n::budget_webhook_sent(lang).dimmed()),
+                        Err(e) => eprintln!("{}", i18n::budget_webhook_failed(lang, &e).yellow()),
+                    }
+                }
+                std::process::exit(1);
             }
             return;
         }

@@ -920,3 +920,33 @@ pub fn savings_empty(lang: Lang) -> &'static str {
     }
 }
 
+// --- budget ----------------------------------------------------------------
+
+pub fn budget_status_line(lang: Lang, period_key: &str, spend_usd: f64, max_usd: f64) -> String {
+    match lang {
+        Lang::En => format!("{period_key}: ${spend_usd:.2} spent of ${max_usd:.2} budget"),
+        Lang::Ru => format!("{period_key}: потрачено ${spend_usd:.2} из ${max_usd:.2} бюджета"),
+    }
+}
+
+pub fn budget_crossed_note(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Threshold crossed.",
+        Lang::Ru => "Порог превышен.",
+    }
+}
+
+pub fn budget_webhook_sent(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Webhook notified.",
+        Lang::Ru => "Уведомление отправлено на webhook.",
+    }
+}
+
+pub fn budget_webhook_failed(lang: Lang, e: &str) -> String {
+    match lang {
+        Lang::En => format!("Could not notify the webhook: {e}"),
+        Lang::Ru => format!("Не удалось отправить уведомление на webhook: {e}"),
+    }
+}
+
