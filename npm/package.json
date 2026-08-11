@@ -1,0 +1,27 @@
+{
+  "name": "@chevvyokk/contextguard",
+  "version": "0.6.0",
+  "description": "npx wrapper for the ContextGuard CLI — downloads the matching prebuilt binary from GitHub Releases and runs it. The Rust source lives in the parent directory of this repo.",
+  "bin": {
+    "contextguard": "bin/contextguard.js"
+  },
+  "scripts": {
+    "test": "node --test bin/*.test.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ChevvyOkK/contextguard.git",
+    "directory": "npm"
+  },
+  "homepage": "https://github.com/ChevvyOkK/contextguard",
+  "keywords": ["claude-code", "cli", "tokens", "cost", "llm"],
+  "license": "SEE LICENSE IN ../LICENSE-MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "os": ["darwin", "linux", "win32"],
+  "cpu": ["x64", "arm64"]
+}

@@ -89,9 +89,9 @@ Cost-Optimization Engine:
 ## ⚡ Quick Start
 
 ```bash
-# Build & install from source — no crates.io publish yet, this is the
-# only command that works today (see Installation below for why)
-cargo install --git https://github.com/ChevvyOkK/contextguard contextguard
+# Lowest-friction option — no Rust toolchain needed, downloads a
+# prebuilt binary on first run (see Installation below for the others)
+npx @chevvyokk/contextguard
 
 # Run an audit against every local session you have
 contextguard
@@ -115,14 +115,27 @@ contextguard --push --api-url https://your-dashboard.example.com --api-key cg_li
 
 **Prebuilt binaries** for Linux (x86_64 + ARM), macOS (Intel + Apple
 Silicon), and Windows are attached to every
-[GitHub Release](https://github.com/ChevvyOkK/contextguard/releases) —
-download the one for your platform and put it on your `PATH`. No
+[GitHub Release](https://github.com/ChevvyOkK/contextguard/releases). No
 `crates.io` publish yet, so `cargo install` needs `--git` rather than a bare
 crate name:
 
 <table>
 <tr>
-<td width="50%" valign="top">
+<td width="33%" valign="top">
+
+**Via npx** (recommended)
+
+```bash
+npx @chevvyokk/contextguard
+```
+
+Downloads the matching prebuilt binary on first run, caches it, runs it.
+No Rust toolchain needed. Scoped package name — `contextguard` and
+`contextguard-cli` were already taken on npm by unrelated projects.
+[Details](npm/README.md).
+
+</td>
+<td width="33%" valign="top">
 
 **Via Cargo**
 
@@ -135,7 +148,7 @@ cargo install --git \
 Needs a Rust toolchain (`rustup.rs`), MSRV **1.85+** (edition 2024).
 
 </td>
-<td width="50%" valign="top">
+<td width="33%" valign="top">
 
 **From source**
 
