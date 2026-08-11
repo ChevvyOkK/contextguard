@@ -6,7 +6,7 @@
 **cache churn, dead re-reads, and `CLAUDE.md` bloat, before it hits your invoice.**
 
 [![CI](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml/badge.svg)](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.3.0-6366f1)](Cargo.toml)
+[![Version](https://img.shields.io/badge/version-0.4.0-6366f1)](Cargo.toml)
 [![Rust MSRV](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](Cargo.toml)
 [![License: MIT OR Apache--2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
 [![i18n](https://img.shields.io/badge/i18n-EN%20%7C%20RU-informational)](src/i18n.rs)
@@ -287,6 +287,44 @@ Add `--format json` for a machine-readable version.
 
 <br>
 
+## 💰 `contextguard savings` — what the plugin actually saved
+
+The bash-truncate hook doesn't estimate its savings — it measures the exact
+character delta between the tool output Claude Code would otherwise have
+received and the smaller version it actually wrote to the transcript,
+before either one is ever sent to the API. Nothing here has to guess at a
+counterfactual by running anything twice.
+
+What this adds is amortization. The truncated output is what gets cached
+and resent on every subsequent turn of that session, not a one-time
+saving — a truncation on turn 3 of a 40-turn session is worth far more than
+the same truncation on the last turn. `contextguard savings` prices each
+one by how many turns were still ahead of it, the same "carried tokens"
+idea `context` uses for `CLAUDE.md` and tool results, and falls back to
+counting a saving once — a floor, not a guess — when it can't be matched to
+a locally-parsed session.
+
+```text
+$ contextguard savings
+
+Savings report — August 2026
+Saved by the plugin: 34531 tokens ≈ $11.11 (amortized: priced by how many
+turns of the session were still ahead of each intervention)
+From 11 intervention(s) across 1 session(s) this month
+Top source: npm test output truncated — 24531 tokens
+Also capped 24 unbounded Grep search(es) this month — no token estimate:
+nothing to compare against without running the search twice.
+```
+
+The Grep-cap hook is reported separately and never priced: it fires
+*before* the search runs, so there's nothing yet to measure a delta
+against — see `cap-grep-limit.js`'s own comment on this. `--format
+markdown` for pasting into a report; requires a plugin build recent enough
+to log a `session_id` and command label for full amortization (older
+entries are still counted, just at the floor).
+
+<br>
+
 ## ⚙️ Flags reference
 
 Global flags apply to every mode:
@@ -320,6 +358,12 @@ Headline report (no subcommand):
 | `--fix` | flag | off | Remove boilerplate/duplicate lines and write the file. Always prints what changed first. |
 | `--format <FORMAT>` | `text` \| `markdown` | `text` | `markdown` is what the PR-bot posts |
 | `--compare-to <FILE>` | path | — | Report the token/cost delta between `FILE` (baseline) and `PATH` instead of a full lint. A missing baseline is treated as empty, not an error. |
+
+`contextguard savings [--format text|markdown]`:
+
+| Flag | Value | Default | Does |
+|---|---|---|---|
+| `--format <FORMAT>` | `text` \| `markdown` | `text` | `markdown` for pasting into a report |
 
 `--push` sends **one row per calendar day**: token counts by category,
 session count, and estimated cost, plus the companion

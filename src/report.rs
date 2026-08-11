@@ -9,6 +9,7 @@ use crate::lint::{Finding, LintReport, Reason};
 use crate::optimize;
 use crate::pricing::PricingTable;
 use crate::savings::SavingsReport;
+use crate::savings_report::MonthlySavings;
 use crate::session::{SessionStats, Usage};
 
 /// How many findings to show per algorithm — enough to act on, not so many
@@ -650,6 +651,101 @@ fn json_string(s: &str) -> String {
     }
     out.push('"');
     out
+}
+
+// --- savings report --------------------------------------------------------
+
+fn print_month_savings(month: &MonthlySavings, lang: Lang) {
+    let label = i18n::savings_month_label(lang, &month.month);
+    println!("{}", i18n::savings_title(lang, &label).bold());
+
+    if month.total_bash_interventions == 0 {
+        println!("{}", i18n::savings_nothing_this_month(lang).dimmed());
+    } else {
+        println!(
+            "{} {}",
+            i18n::savings_headline(lang, month.bash_truncate_tokens, month.bash_truncate_usd).green(),
+            i18n::savings_amortized_note(lang).dimmed()
+        );
+        println!("{}", i18n::savings_from_line(lang, month.total_bash_interventions, month.sessions_touched));
+
+        if month.amortized_interventions == 0 {
+            println!("{}", i18n::savings_no_amortization_note(lang).dimmed());
+        } else if month.amortized_interventions < month.total_bash_interventions {
+            println!(
+                "{}",
+                i18n::savings_partial_amortization_note(lang, month.amortized_interventions, month.total_bash_interventions)
+                    .dimmed()
+            );
+        }
+
+        if let Some(top) = &month.top_command {
+            println!("{}", i18n::savings_top_command(lang, &top.label, top.tokens));
+        }
+    }
+
+    if month.grep_cap_interventions > 0 {
+        println!("{}", i18n::savings_grep_cap_line(lang, month.grep_cap_interventions).dimmed());
+    }
+}
+
+pub fn print_savings_report(months: &[MonthlySavings], lang: Lang) {
+    if months.is_empty() {
+        println!("{}", i18n::savings_empty(lang).yellow());
+        return;
+    }
+    for (i, month) in months.iter().enumerate() {
+        if i > 0 {
+            println!();
+        }
+        print_month_savings(month, lang);
+    }
+}
+
+fn month_savings_markdown(month: &MonthlySavings, lang: Lang) -> String {
+    let mut out = String::new();
+    let label = i18n::savings_month_label(lang, &month.month);
+    out.push_str(&format!("**{}**\n\n", i18n::savings_title(lang, &label)));
+
+    if month.total_bash_interventions == 0 {
+        out.push_str(&format!("{}\n", i18n::savings_nothing_this_month(lang)));
+    } else {
+        out.push_str(&format!(
+            "{} {}\n",
+            i18n::savings_headline(lang, month.bash_truncate_tokens, month.bash_truncate_usd),
+            i18n::savings_amortized_note(lang)
+        ));
+        out.push_str(&format!(
+            "{}\n",
+            i18n::savings_from_line(lang, month.total_bash_interventions, month.sessions_touched)
+        ));
+
+        if month.amortized_interventions == 0 {
+            out.push_str(&format!("{}\n", i18n::savings_no_amortization_note(lang)));
+        } else if month.amortized_interventions < month.total_bash_interventions {
+            out.push_str(&format!(
+                "{}\n",
+                i18n::savings_partial_amortization_note(lang, month.amortized_interventions, month.total_bash_interventions)
+            ));
+        }
+
+        if let Some(top) = &month.top_command {
+            out.push_str(&format!("{}\n", i18n::savings_top_command(lang, &top.label, top.tokens)));
+        }
+    }
+
+    if month.grep_cap_interventions > 0 {
+        out.push_str(&format!("{}\n", i18n::savings_grep_cap_line(lang, month.grep_cap_interventions)));
+    }
+
+    out
+}
+
+pub fn savings_report_markdown(months: &[MonthlySavings], lang: Lang) -> String {
+    if months.is_empty() {
+        return i18n::savings_empty(lang).to_string();
+    }
+    months.iter().map(|m| month_savings_markdown(m, lang)).collect::<Vec<_>>().join("\n")
 }
 
 #[cfg(test)]
