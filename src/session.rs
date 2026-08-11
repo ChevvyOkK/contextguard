@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -90,6 +90,13 @@ struct RawLine {
 
 #[derive(Debug, Deserialize)]
 struct RawMessage {
+    /// The API response id (`msg_…`). Claude Code writes one record per
+    /// content block of a response — a turn that thinks and then makes two
+    /// tool calls becomes three records — and repeats the whole response's
+    /// usage in every one of them. This is what tells them apart from three
+    /// genuinely separate responses.
+    #[serde(default)]
+    id: Option<String>,
     #[serde(default)]
     model: Option<String>,
     #[serde(default)]
@@ -135,6 +142,9 @@ pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, Strin
 
     let session_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
     let mut stats = SessionStats { session_id, ..Default::default() };
+    // Response ids already counted, so the extra records a multi-block
+    // response produces don't each contribute their copy of the usage.
+    let mut seen_responses: HashSet<String> = HashSet::new();
 
     for line in reader.lines() {
         let Ok(line) = line else { continue };
@@ -155,23 +165,43 @@ pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, Strin
         }
         let Some(message) = raw.message else { continue };
 
-        // Captured before pushing this line's turn (if any) so a tool_use
-        // block in the same message points at the turn it actually belongs
-        // to, not the one after it.
-        let turn_index = stats.turns.len();
+        // Where a tool_use block in this record should be attributed. For a
+        // record with no usage at all (rare, malformed) it stays at the next
+        // turn boundary, the pre-existing best-effort behaviour.
+        let mut turn_index = stats.turns.len();
 
         if let Some(u) = &message.usage {
-            let model = message.model.clone().unwrap_or_else(|| "unknown".to_string());
-            stats.turns.push(Turn {
-                model,
-                usage: Usage {
-                    input_tokens: u.input_tokens,
-                    output_tokens: u.output_tokens,
-                    cache_creation_input_tokens: u.cache_creation_input_tokens,
-                    cache_read_input_tokens: u.cache_read_input_tokens,
-                },
-                timestamp: raw.timestamp.clone(),
-            });
+            // One API response, several records, the same usage repeated in
+            // each: counting them all inflated every figure this tool
+            // reports — tokens, cost, cache totals — by ~90% on real
+            // transcripts. The first record of a response is the one that
+            // becomes a Turn; the rest still get scanned for their tool
+            // calls below, they just don't pay twice.
+            let first_of_response = match &message.id {
+                Some(id) => seen_responses.insert(id.clone()),
+                // No id to group by: count it rather than silently drop a
+                // real response.
+                None => true,
+            };
+
+            if first_of_response {
+                let model = message.model.clone().unwrap_or_else(|| "unknown".to_string());
+                stats.turns.push(Turn {
+                    model,
+                    usage: Usage {
+                        input_tokens: u.input_tokens,
+                        output_tokens: u.output_tokens,
+                        cache_creation_input_tokens: u.cache_creation_input_tokens,
+                        cache_read_input_tokens: u.cache_read_input_tokens,
+                    },
+                    timestamp: raw.timestamp.clone(),
+                });
+            }
+
+            // Every record of a response belongs to the turn that response
+            // created, whether this record is the one that created it or a
+            // later block of the same answer.
+            turn_index = stats.turns.len().saturating_sub(1);
         }
 
         if let Some(blocks) = &message.content {
@@ -274,6 +304,73 @@ mod tests {
         ]);
         let stats = parse_session_file(file.path(), Lang::En).unwrap();
         assert_eq!(stats.turns.len(), 0);
+    }
+
+    #[test]
+    fn one_response_split_across_records_is_counted_once() {
+        // Claude Code writes a record per content block, repeating the whole
+        // response's usage in each. Three records, one `msg_` id, one answer.
+        let file = write_jsonl(&[
+            r#"{"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-5","usage":{"input_tokens":2,"output_tokens":221,"cache_creation_input_tokens":17262,"cache_read_input_tokens":26784},"content":[{"type":"thinking"}]}}"#,
+            r#"{"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-5","usage":{"input_tokens":2,"output_tokens":221,"cache_creation_input_tokens":17262,"cache_read_input_tokens":26784},"content":[{"type":"tool_use","name":"Read","input":{"file_path":"/a.rs"}}]}}"#,
+            r#"{"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-5","usage":{"input_tokens":2,"output_tokens":221,"cache_creation_input_tokens":17262,"cache_read_input_tokens":26784},"content":[{"type":"tool_use","name":"Bash"}]}}"#,
+        ]);
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
+
+        assert_eq!(stats.turns.len(), 1, "one API response is one turn");
+        let total = stats.total_usage();
+        assert_eq!(total.output_tokens, 221);
+        assert_eq!(total.cache_read_input_tokens, 26_784);
+        assert_eq!(total.cache_creation_input_tokens, 17_262);
+
+        // The later records still carry real tool calls; only their copy of
+        // the usage is redundant.
+        assert_eq!(stats.tool_calls.get("Read"), Some(&1));
+        assert_eq!(stats.tool_calls.get("Bash"), Some(&1));
+        assert!(
+            stats.tool_call_log.iter().all(|c| c.turn_index == 0),
+            "every block of a response belongs to that response's turn",
+        );
+    }
+
+    #[test]
+    fn distinct_responses_still_accumulate() {
+        let file = write_jsonl(&[
+            r#"{"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-5","usage":{"input_tokens":10,"output_tokens":10,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            r#"{"type":"assistant","message":{"id":"msg_b","model":"claude-sonnet-5","usage":{"input_tokens":20,"output_tokens":20,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+        ]);
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
+        assert_eq!(stats.turns.len(), 2);
+        assert_eq!(stats.total_usage().input_tokens, 30);
+    }
+
+    #[test]
+    fn responses_without_an_id_are_never_dropped() {
+        // Older transcripts, or a truncated write: with nothing to group on,
+        // undercounting would be the worse failure.
+        let file = write_jsonl(&[
+            r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+            r#"{"type":"assistant","message":{"model":"claude-sonnet-5","usage":{"input_tokens":10,"output_tokens":5,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+        ]);
+        let stats = parse_session_file(file.path(), Lang::En).unwrap();
+        assert_eq!(stats.turns.len(), 2);
+        assert_eq!(stats.total_usage().input_tokens, 20);
+    }
+
+    #[test]
+    fn the_same_id_in_two_sessions_is_two_responses() {
+        // Dedup state is per file: ids are only guaranteed unique within a
+        // transcript, and sharing a set across files would silently drop
+        // real turns from later sessions.
+        let a = write_jsonl(&[
+            r#"{"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-5","usage":{"input_tokens":7,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+        ]);
+        let b = write_jsonl(&[
+            r#"{"type":"assistant","message":{"id":"msg_a","model":"claude-sonnet-5","usage":{"input_tokens":7,"output_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}"#,
+        ]);
+        let sa = parse_session_file(a.path(), Lang::En).unwrap();
+        let sb = parse_session_file(b.path(), Lang::En).unwrap();
+        assert_eq!(sa.total_usage().input_tokens + sb.total_usage().input_tokens, 14);
     }
 
     #[test]
