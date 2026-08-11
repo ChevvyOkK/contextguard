@@ -1,4 +1,5 @@
 mod claude_md;
+mod context;
 mod discovery;
 mod i18n;
 mod optimize;
@@ -24,27 +25,53 @@ enum OutputFormat {
     Markdown,
 }
 
+/// Output format for `contextguard context`, which has a machine-readable
+/// mode the headline report does not: the breakdown is the part people want
+/// to feed into something else.
+#[derive(clap::ValueEnum, Clone, Copy, Debug, PartialEq, Eq)]
+enum ContextFormat {
+    Text,
+    Json,
+}
+
+#[derive(clap::Subcommand, Debug)]
+enum Command {
+    /// Break down what is occupying the context window, and what re-sending
+    /// it costs.
+    Context {
+        /// "text" (default) or "json"
+        #[arg(long, value_enum, default_value_t = ContextFormat::Text)]
+        format: ContextFormat,
+    },
+}
+
 /// ContextGuard — local audit of Claude Code token spend. Nothing is sent
 /// anywhere unless you explicitly pass --push: it only reads session files
 /// already on this machine.
 #[derive(Parser, Debug)]
 #[command(name = "contextguard", version, about)]
 struct Cli {
+    /// Run a specific analysis. Omit for the headline report.
+    #[command(subcommand)]
+    command: Option<Command>,
+
     /// Only consider sessions from the last N days (default: all)
-    #[arg(long)]
+    #[arg(long, global = true)]
     days: Option<u64>,
 
     /// Path to a CLAUDE.md to analyze (default: looked up in the current directory)
-    #[arg(long)]
+    #[arg(long, global = true)]
     claude_md: Option<PathBuf>,
 
     /// Output format: "text" (default, full report) or "markdown" (compact,
-    /// top-3 findings — for Slack/GitHub PR)
+    /// top-3 findings — for Slack/GitHub PR). Deliberately not global: the
+    /// context subcommand has its own --format with a different set of
+    /// values, and two globals with one name collide.
     #[arg(long, value_enum, default_value_t = OutputFormat::Text)]
     format: OutputFormat,
 
     /// Output language: "en" or "ru" (default: en, or $CONTEXTGUARD_LANG)
-    #[arg(long)]
+    #[arg(long, global = true)]
     lang: Option<String>,
 
     /// Push aggregated daily snapshots (numbers only, no code/content) to the dashboard
@@ -94,6 +121,15 @@ fn main() {
     });
     let claude_md_report = claude_md_path.as_deref().and_then(|p| claude_md::analyze(p, lang).ok());
     let savings_report = savings::read();
+
+    if let Some(Command::Context { format }) = cli.command {
+        let audit = context::audit(&sessions, &pricing);
+        match format {
+            ContextFormat::Text => report::print_context_audit(&audit, lang),
+            ContextFormat::Json => println!("{}", report::context_audit_json(&audit)),
+        }
+        return;
+    }
 
     match cli.format {
         OutputFormat::Text => {

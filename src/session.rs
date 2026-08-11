@@ -49,6 +49,38 @@ pub struct ToolCall {
     pub file_path: Option<String>,
 }
 
+/// A block of text that entered the context and is re-sent on every request
+/// after it, which is what makes its size worth attributing.
+///
+/// Sizes are character counts, not tokens: the transcript stores text, and
+/// converting is the caller's problem (see `context::approx_tokens`) so the
+/// parser stays free of pricing assumptions.
+#[derive(Debug, Clone)]
+pub struct ContextEntry {
+    /// Which turn it first appeared at. Everything from here to the end of
+    /// the session is re-sent with it, so an early entry costs far more than
+    /// a late one of the same size.
+    pub turn_index: usize,
+    pub kind: ContextKind,
+    pub chars: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContextKind {
+    /// A tool's output, named where the call could be matched by id.
+    ToolResult(Option<String>),
+    /// The arguments the assistant sent to a tool.
+    ToolUse(String),
+    /// Injected by Claude Code rather than written by either party: hook
+    /// output, skill and agent listings, task reminders, memory files. The
+    /// string is the attachment's own `type`, which is what makes these
+    /// separable at all.
+    Attachment(String),
+    UserText,
+    AssistantText,
+    Thinking,
+}
+
 #[derive(Debug, Default)]
 pub struct SessionStats {
     pub session_id: String,
@@ -56,6 +88,13 @@ pub struct SessionStats {
     pub turns: Vec<Turn>,
     pub tool_calls: HashMap<String, u64>,
     pub tool_call_log: Vec<ToolCall>,
+    /// Everything that occupies the context window, in the order it arrived.
+    pub context_entries: Vec<ContextEntry>,
+    /// Prompt tokens on the session's first response: input + cache creation
+    /// + cache read. The system prompt and the tool schemas are never written
+    /// to the transcript, so this total minus the visible content before it
+    /// is the only handle we have on their size.
+    pub first_prompt_tokens: Option<u64>,
     /// ISO 8601 timestamp of the first record seen in the file. Used to
     /// bucket a session into a calendar day for `--push`; a session that
     /// spans midnight is attributed entirely to its start day rather than
@@ -86,6 +125,12 @@ struct RawLine {
     timestamp: Option<String>,
     #[serde(default)]
     message: Option<RawMessage>,
+    /// Content Claude Code injects on its own account — hook output, skill
+    /// and agent listings, task reminders, imported memory files. It occupies
+    /// the same context window as the conversation but appears in neither
+    /// party's messages, which is why it goes unnoticed.
+    #[serde(default)]
+    attachment: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -101,8 +146,13 @@ struct RawMessage {
     model: Option<String>,
     #[serde(default)]
     usage: Option<RawUsage>,
+    /// Left as raw JSON on purpose. A user message's content is sometimes a
+    /// bare string and sometimes a list of blocks, and a tool_result's
+    /// payload is the same story one level down. Typing it as a list made
+    /// every string-content line fail to deserialize and get skipped — which
+    /// went unnoticed while only assistant records were read.
     #[serde(default)]
-    content: Option<Vec<RawContentBlock>>,
+    content: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -117,25 +167,6 @@ struct RawUsage {
     cache_read_input_tokens: u64,
 }
 
-#[derive(Debug, Deserialize)]
-struct RawContentBlock {
-    #[serde(rename = "type")]
-    kind: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    input: Option<RawToolInput>,
-}
-
-/// Tool call arguments, permissively parsed: only `file_path` is used
-/// (Read/Edit/Write all key it the same way), everything else in `input`
-/// is irrelevant here and never even reaches this struct.
-#[derive(Debug, Deserialize)]
-struct RawToolInput {
-    #[serde(default)]
-    file_path: Option<String>,
-}
-
 pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, String> {
     let file = File::open(path).map_err(|e| i18n::err_open_file(lang, &format!("{path:?}"), &e.to_string()))?;
     let reader = BufReader::new(file);
@@ -143,8 +174,11 @@ pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, Strin
     let session_id = path.file_stem().and_then(|s| s.to_str()).unwrap_or("unknown").to_string();
     let mut stats = SessionStats { session_id, ..Default::default() };
     // Response ids already counted, so the extra records a multi-block
-    // response produces don't each contribute their copy of the usage.
+    // response produces do not each contribute their copy of the usage.
     let mut seen_responses: HashSet<String> = HashSet::new();
+    // tool_use id -> tool name, so a tool_result can be attributed to the
+    // tool that produced it. The result block never names it itself.
+    let mut tool_names: HashMap<String, String> = HashMap::new();
 
     for line in reader.lines() {
         let Ok(line) = line else { continue };
@@ -160,67 +194,173 @@ pub fn parse_session_file(path: &Path, lang: Lang) -> Result<SessionStats, Strin
             stats.first_timestamp = raw.timestamp.clone();
         }
 
-        if raw.kind.as_deref() != Some("assistant") {
+        // Attachments are top-level records with no `message` at all. They
+        // are Claude Code talking to itself: hook output, skill listings,
+        // task reminders, memory files. They occupy the context window
+        // exactly like anything else in it.
+        if let Some(attachment) = &raw.attachment {
+            let kind = attachment
+                .get("type")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string();
+            stats.context_entries.push(ContextEntry {
+                turn_index: stats.turns.len(),
+                kind: ContextKind::Attachment(kind),
+                chars: json_text_len(attachment),
+            });
+            continue;
+        }
+
+        let is_assistant = raw.kind.as_deref() == Some("assistant");
+        let is_user = raw.kind.as_deref() == Some("user");
+        if !is_assistant && !is_user {
             continue;
         }
         let Some(message) = raw.message else { continue };
 
-        // Where a tool_use block in this record should be attributed. For a
-        // record with no usage at all (rare, malformed) it stays at the next
-        // turn boundary, the pre-existing best-effort behaviour.
+        // Where content in this record should be attributed. For a record
+        // with no usage at all it stays at the next turn boundary, the
+        // pre-existing best-effort behaviour.
         let mut turn_index = stats.turns.len();
 
-        if let Some(u) = &message.usage {
-            // One API response, several records, the same usage repeated in
-            // each: counting them all inflated every figure this tool
-            // reports — tokens, cost, cache totals — by ~90% on real
-            // transcripts. The first record of a response is the one that
-            // becomes a Turn; the rest still get scanned for their tool
-            // calls below, they just don't pay twice.
-            let first_of_response = match &message.id {
-                Some(id) => seen_responses.insert(id.clone()),
-                // No id to group by: count it rather than silently drop a
-                // real response.
-                None => true,
-            };
+        if is_assistant {
+            if let Some(u) = &message.usage {
+                // One API response, several records, the same usage repeated
+                // in each: counting them all inflated every figure this tool
+                // reports by ~90% on real transcripts. The first record of a
+                // response becomes a Turn; the rest are still scanned for
+                // their content, they just do not pay twice.
+                let first_of_response = match &message.id {
+                    Some(id) => seen_responses.insert(id.clone()),
+                    // No id to group by: count it rather than silently drop a
+                    // real response.
+                    None => true,
+                };
 
-            if first_of_response {
-                let model = message.model.clone().unwrap_or_else(|| "unknown".to_string());
-                stats.turns.push(Turn {
-                    model,
-                    usage: Usage {
-                        input_tokens: u.input_tokens,
-                        output_tokens: u.output_tokens,
-                        cache_creation_input_tokens: u.cache_creation_input_tokens,
-                        cache_read_input_tokens: u.cache_read_input_tokens,
-                    },
-                    timestamp: raw.timestamp.clone(),
-                });
-            }
-
-            // Every record of a response belongs to the turn that response
-            // created, whether this record is the one that created it or a
-            // later block of the same answer.
-            turn_index = stats.turns.len().saturating_sub(1);
-        }
-
-        if let Some(blocks) = &message.content {
-            for block in blocks {
-                if block.kind.as_deref() == Some("tool_use") {
-                    if let Some(name) = &block.name {
-                        *stats.tool_calls.entry(name.clone()).or_insert(0) += 1;
-                        stats.tool_call_log.push(ToolCall {
-                            turn_index,
-                            name: name.clone(),
-                            file_path: block.input.as_ref().and_then(|i| i.file_path.clone()),
-                        });
+                if first_of_response {
+                    let model = message.model.clone().unwrap_or_else(|| "unknown".to_string());
+                    stats.turns.push(Turn {
+                        model,
+                        usage: Usage {
+                            input_tokens: u.input_tokens,
+                            output_tokens: u.output_tokens,
+                            cache_creation_input_tokens: u.cache_creation_input_tokens,
+                            cache_read_input_tokens: u.cache_read_input_tokens,
+                        },
+                        timestamp: raw.timestamp.clone(),
+                    });
+                    if stats.first_prompt_tokens.is_none() {
+                        stats.first_prompt_tokens = Some(
+                            u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens,
+                        );
                     }
                 }
+
+                // Every record of a response belongs to the turn that
+                // response created.
+                turn_index = stats.turns.len().saturating_sub(1);
+            }
+        }
+
+        let Some(content) = &message.content else { continue };
+
+        // A user message is sometimes just a string rather than a list of
+        // blocks. That shape used to fail deserialization outright, taking
+        // the whole line with it.
+        if let Some(text) = content.as_str() {
+            stats.context_entries.push(ContextEntry {
+                turn_index,
+                kind: ContextKind::UserText,
+                chars: text.chars().count(),
+            });
+            continue;
+        }
+        let Some(blocks) = content.as_array() else { continue };
+
+        for block in blocks {
+            let block_kind = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match block_kind {
+                "tool_use" => {
+                    let Some(name) = block.get("name").and_then(|v| v.as_str()) else { continue };
+                    *stats.tool_calls.entry(name.to_string()).or_insert(0) += 1;
+                    if let Some(id) = block.get("id").and_then(|v| v.as_str()) {
+                        tool_names.insert(id.to_string(), name.to_string());
+                    }
+                    let input = block.get("input");
+                    stats.tool_call_log.push(ToolCall {
+                        turn_index,
+                        name: name.to_string(),
+                        file_path: input
+                            .and_then(|i| i.get("file_path"))
+                            .and_then(|v| v.as_str())
+                            .map(str::to_string),
+                    });
+                    stats.context_entries.push(ContextEntry {
+                        turn_index,
+                        kind: ContextKind::ToolUse(name.to_string()),
+                        chars: input.map(json_text_len).unwrap_or(0),
+                    });
+                }
+                "tool_result" => {
+                    let name = block
+                        .get("tool_use_id")
+                        .and_then(|v| v.as_str())
+                        .and_then(|id| tool_names.get(id))
+                        .cloned();
+                    stats.context_entries.push(ContextEntry {
+                        turn_index,
+                        kind: ContextKind::ToolResult(name),
+                        chars: block.get("content").map(json_text_len).unwrap_or(0),
+                    });
+                }
+                "text" => {
+                    let chars = block
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(|t| t.chars().count())
+                        .unwrap_or(0);
+                    stats.context_entries.push(ContextEntry {
+                        turn_index,
+                        kind: if is_assistant { ContextKind::AssistantText } else { ContextKind::UserText },
+                        chars,
+                    });
+                }
+                "thinking" => {
+                    stats.context_entries.push(ContextEntry {
+                        turn_index,
+                        kind: ContextKind::Thinking,
+                        chars: block
+                            .get("thinking")
+                            .and_then(|v| v.as_str())
+                            .map(|t| t.chars().count())
+                            .unwrap_or(0),
+                    });
+                }
+                _ => {}
             }
         }
     }
 
     Ok(stats)
+}
+
+/// Length of the human-readable text inside an arbitrary JSON value.
+///
+/// Tool results and attachments have no single shape: a string, a list of
+/// blocks, an object with a `content` or `text` field, or something nested.
+/// Summing the string leaves approximates what the model actually reads,
+/// where serializing the whole value would also count braces, keys and
+/// quoting the model is never billed for.
+fn json_text_len(value: &serde_json::Value) -> usize {
+    match value {
+        serde_json::Value::String(s) => s.chars().count(),
+        serde_json::Value::Array(items) => items.iter().map(json_text_len).sum(),
+        serde_json::Value::Object(map) => map.values().map(json_text_len).sum(),
+        // Numbers and booleans are a handful of characters each and never
+        // move a total that runs to hundreds of thousands.
+        _ => 0,
+    }
 }
 
 #[cfg(test)]
