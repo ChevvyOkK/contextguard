@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use owo_colors::OwoColorize;
 
 use crate::claude_md::ClaudeMdReport;
+use crate::context::{self, ContextAudit, Provenance};
 use crate::i18n::{self, Lang};
 use crate::optimize;
 use crate::pricing::PricingTable;
@@ -339,6 +340,151 @@ fn format_num(n: u64) -> String {
         result.push(c);
     }
     result.chars().rev().collect()
+}
+
+/// Renders the context audit.
+///
+/// Bars are proportional to occupancy so the shape of the answer is visible
+/// before any number is read — on real transcripts one or two categories
+/// dwarf everything else, and that is the finding.
+pub fn print_context_audit(audit: &ContextAudit, lang: Lang) {
+    println!("{}", i18n::context_title(lang).bold());
+    println!("{}", i18n::context_subtitle(lang, audit.sessions).dimmed());
+    println!();
+
+    if audit.categories.is_empty() {
+        println!("{}", i18n::context_nothing(lang).yellow());
+        return;
+    }
+
+    let widest = audit.categories.iter().map(|c| c.label.chars().count()).max().unwrap_or(0);
+    let largest = audit.categories.iter().map(|c| c.tokens).max().unwrap_or(1).max(1);
+
+    for category in &audit.categories {
+        let filled = ((category.tokens as f64 / largest as f64) * 28.0).round() as usize;
+        let bar = "█".repeat(filled.max(1));
+        let share = 100.0 * category.tokens as f64 / audit.total_tokens.max(1) as f64;
+        let marker = match category.provenance {
+            Provenance::Estimated => format!(" {}", i18n::context_estimated_marker(lang)).dimmed().to_string(),
+            Provenance::Measured => String::new(),
+        };
+        println!(
+            "  {label:<width$}  {tokens:>12} tok  {share:>4.0}%  {bar}{marker}",
+            label = category.label,
+            width = widest,
+            tokens = format_num(category.tokens),
+            share = share,
+            bar = bar.cyan(),
+            marker = marker,
+        );
+    }
+
+    println!();
+    println!(
+        "{}",
+        i18n::context_carried_note(
+            lang,
+            &format_num(audit.categories.iter().map(|c| c.carried_tokens).sum()),
+            &format!("${:.2}", audit.carried_cost_usd),
+        )
+    );
+
+    if let Some(prefix) = audit.fixed_prefix_tokens {
+        println!();
+        println!("{}", i18n::context_prefix_note(lang, &format_num(prefix)).dimmed());
+    }
+
+    let configured = context::configured_servers();
+    if !audit.mcp_servers.is_empty() || !configured.is_empty() {
+        println!();
+        println!("{}", i18n::context_mcp_header(lang).bold());
+        for server in &audit.mcp_servers {
+            println!("  {:<24} {} calls", server.server, server.calls);
+        }
+        let unused = context::unused_servers(&configured, audit);
+        if !unused.is_empty() {
+            println!(
+                "  {}",
+                i18n::context_mcp_unused(lang, unused.len(), &unused.join(", ")).yellow()
+            );
+        }
+        println!("  {}", i18n::context_mcp_caveat(lang).dimmed());
+    }
+
+    if !audit.repeated_reads.is_empty() {
+        println!();
+        println!("{}", i18n::context_rereads_header(lang).bold());
+        for read in &audit.repeated_reads {
+            println!("  {}", i18n::context_reread_line(lang, read.count, &read.path).yellow());
+        }
+    }
+}
+
+/// Machine-readable form of the same audit.
+///
+/// Hand-built rather than derived: the structs would need serde derives that
+/// nothing else in this binary wants, and the field names here are a public
+/// interface that should not silently follow a Rust rename.
+pub fn context_audit_json(audit: &ContextAudit) -> String {
+    let categories: Vec<String> = audit
+        .categories
+        .iter()
+        .map(|c| {
+            format!(
+                r#"{{"label":{},"tokens":{},"carried_tokens":{},"provenance":"{}"}}"#,
+                json_string(&c.label),
+                c.tokens,
+                c.carried_tokens,
+                match c.provenance {
+                    Provenance::Measured => "measured",
+                    Provenance::Estimated => "estimated",
+                }
+            )
+        })
+        .collect();
+
+    let reads: Vec<String> = audit
+        .repeated_reads
+        .iter()
+        .map(|r| format!(r#"{{"path":{},"count":{}}}"#, json_string(&r.path), r.count))
+        .collect();
+
+    let servers: Vec<String> = audit
+        .mcp_servers
+        .iter()
+        .map(|s| format!(r#"{{"server":{},"calls":{}}}"#, json_string(&s.server), s.calls))
+        .collect();
+
+    format!(
+        r#"{{"sessions":{},"total_tokens":{},"carried_cost_usd":{:.4},"fixed_prefix_tokens":{},"categories":[{}],"repeated_reads":[{}],"mcp_servers":[{}]}}"#,
+        audit.sessions,
+        audit.total_tokens,
+        audit.carried_cost_usd,
+        audit.fixed_prefix_tokens.map(|t| t.to_string()).unwrap_or_else(|| "null".to_string()),
+        categories.join(","),
+        reads.join(","),
+        servers.join(","),
+    )
+}
+
+/// Minimal JSON string escaping. Paths on Windows are full of backslashes,
+/// which would produce invalid JSON if emitted raw.
+fn json_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 #[cfg(test)]

@@ -526,3 +526,101 @@ pub fn markdown_loss_model_mismatch(lang: Lang, loss_usd: f64, session_short: &s
         Lang::Ru => format!("*Потеря:* ${loss_usd:.2} за {turns} ход(ов) в сессии `#{session_short}`"),
     }
 }
+
+// --- context audit -----------------------------------------------------
+
+pub fn context_title(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "What is in your context window",
+        Lang::Ru => "Что занимает ваше контекстное окно",
+    }
+}
+
+pub fn context_subtitle(lang: Lang, sessions: usize) -> String {
+    match lang {
+        Lang::En => format!("Averaged across {sessions} session(s) on this machine"),
+        Lang::Ru => format!("Усреднено по {sessions} сессиям на этой машине"),
+    }
+}
+
+pub fn context_nothing(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "No sessions with usable content found.",
+        Lang::Ru => "Сессий с пригодным содержимым не найдено.",
+    }
+}
+
+pub fn context_estimated_marker(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "estimated",
+        Lang::Ru => "оценка",
+    }
+}
+
+pub fn context_carried_note(lang: Lang, tokens: &str, cost: &str) -> String {
+    match lang {
+        Lang::En => format!(
+            "Re-sent across every request in these sessions: {tokens} tokens, about {cost}.\n\
+             That is what the window costs you, as opposed to what it holds."
+        ),
+        Lang::Ru => format!(
+            "Переслано заново во всех запросах этих сессий: {tokens} токенов, примерно {cost}.\n\
+             Это то, во что окно обходится, а не то, что в нём лежит."
+        ),
+    }
+}
+
+pub fn context_prefix_note(lang: Lang, tokens: &str) -> String {
+    match lang {
+        Lang::En => format!(
+            "The system prompt and tool schemas are never written to the transcript.\n\
+             {tokens} tokens is what remains after subtracting everything visible from\n\
+             the first request's own token count — an estimate, not a measurement."
+        ),
+        Lang::Ru => format!(
+            "Системный промпт и схемы инструментов в транскрипт не пишутся.\n\
+             {tokens} токенов — это остаток после вычитания всего видимого из счётчика\n\
+             токенов первого запроса. Это оценка, а не измерение."
+        ),
+    }
+}
+
+pub fn context_mcp_header(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "MCP servers that answered a call:",
+        Lang::Ru => "MCP-серверы, которые отвечали на вызовы:",
+    }
+}
+
+pub fn context_mcp_caveat(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Every configured server's schemas sit in the fixed prefix above whether \
+or not\n  they are used. How many tokens each one costs is not in the transcript — only\n  \
+which ones went unused.",
+        Lang::Ru => "Схемы каждого настроенного сервера лежат в фиксированном префиксе выше \
+независимо\n  от использования. Сколько токенов стоит каждый — в транскрипте нет; есть только\n  \
+то, какие не пригодились.",
+    }
+}
+
+pub fn context_rereads_header(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => "Files read more than once in a single session:",
+        Lang::Ru => "Файлы, прочитанные больше одного раза за сессию:",
+    }
+}
+
+pub fn context_reread_line(lang: Lang, count: usize, path: &str) -> String {
+    match lang {
+        Lang::En => format!("{count}x  {path}"),
+        Lang::Ru => format!("{count}x  {path}"),
+    }
+}
+
+pub fn context_mcp_unused(lang: Lang, count: usize, names: &str) -> String {
+    match lang {
+        Lang::En => format!("{count} configured server(s) were never called: {names}"),
+        Lang::Ru => format!("{count} настроенных сервер(ов) не вызывались ни разу: {names}"),
+    }
+}
+
