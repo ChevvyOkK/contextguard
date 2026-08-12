@@ -2,6 +2,15 @@
 
 `npx` wrapper for the [ContextGuard CLI](https://github.com/ChevvyOkK/contextguard) — the lowest-friction install path: no Rust toolchain, no `cargo install --git` wait.
 
+> [!NOTE]
+> **Not published to npm yet.** The code here is real, tested, and
+> merged — `npm publish` is deliberately held until v1.0, alongside the
+> CLI's move to a source-available license, so the first thing anyone
+> ever sees on npm is the final license rather than an MIT/Apache release
+> followed by a stricter one. Until then, `npx @chevvyokk/contextguard`
+> below won't resolve — use `curl -sSf https://contextguard-web.vercel.app/install.sh | sh`
+> or `cargo install --git` instead (see the main README).
+
 ```bash
 npx @chevvyokk/contextguard
 ```

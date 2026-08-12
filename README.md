@@ -29,6 +29,15 @@
 
 ## 📺 See it in action
 
+![contextguard --days 7 — real output, not a mockup](assets/terminal-showcase.gif)
+
+The GIF above is the same real `--days 7` run shown on the [web dashboard's
+landing page](https://contextguard-web.vercel.app) — actual output, not staged
+numbers. The block below is a fuller tour of the other detectors
+(cost-optimization findings, most-expensive-sessions ranking, `CLAUDE.md`
+audit) using an illustrative example session, since no single real run
+happens to trigger all of them at once:
+
 ```text
 $ contextguard --days 7
 
@@ -89,9 +98,9 @@ Cost-Optimization Engine:
 ## ⚡ Quick Start
 
 ```bash
-# Lowest-friction option — no Rust toolchain needed, downloads a
-# prebuilt binary on first run (see Installation below for the others)
-npx @chevvyokk/contextguard
+# Prebuilt binary, no Rust toolchain needed (see Installation below for
+# npx/Homebrew, coming with v1.0)
+curl -sSf https://contextguard-web.vercel.app/install.sh | sh
 
 # Run an audit against every local session you have
 contextguard
@@ -123,16 +132,19 @@ crate name:
 <tr>
 <td width="33%" valign="top">
 
-**Via npx** (recommended)
+**Via install script** (macOS/Linux)
 
 ```bash
-npx @chevvyokk/contextguard
+curl -sSf \
+  https://contextguard-web.vercel.app/install.sh \
+  | sh
 ```
 
-Downloads the matching prebuilt binary on first run, caches it, runs it.
-No Rust toolchain needed. Scoped package name — `contextguard` and
-`contextguard-cli` were already taken on npm by unrelated projects.
-[Details](npm/README.md).
+Downloads the matching prebuilt binary, installs it to `~/.local/bin`.
+Moves to `contextguard.dev/install.sh` once that domain exists — this
+URL will keep working either way. On Windows, use Cargo or a manual
+download from [Releases](https://github.com/ChevvyOkK/contextguard/releases)
+instead.
 
 </td>
 <td width="33%" valign="top">
