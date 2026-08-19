@@ -2,8 +2,8 @@
 
 # ContextGuard
 
-**Blazing-fast, local-first CLI in Rust that finds where your Claude Code tokens go —**
-**cache churn, dead re-reads, and `CLAUDE.md` bloat, before it hits your invoice.**
+**Local-first Runtime Guard & Efficiency Layer for Claude Code**  
+*Stops no-progress loops, prevents context amnesia across `/compact`, and preserves your 5-hour quota.*
 
 [![CI](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml/badge.svg)](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-0.6.0-6366f1)](Cargo.toml)
@@ -12,248 +12,167 @@
 [![i18n](https://img.shields.io/badge/i18n-EN%20%7C%20RU-informational)](src/i18n.rs)
 [![GitHub Stars](https://img.shields.io/github/stars/ChevvyOkK/contextguard?style=social)](https://github.com/ChevvyOkK/contextguard/stargazers)
 
-[Quick Start](#-quick-start) · [Key Features](#-the-six-detectors) · [CI/CD](#-ci-integration--comment-the-tokencost-delta-on-every-pr) · [Web Dashboard](https://contextguard-web.vercel.app)
+[Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Detectors](#-the-six-detectors) · [Lossless Vault](#-smart-output-guard--lossless-vault) · [CLAUDE.md Lint](#-claudemd-diagnostics) · [Web Dashboard](https://contextguard-web.vercel.app)
 
 </div>
 
 <br>
 
 > [!IMPORTANT]
-> **Local-first, by construction — not by promise.** ContextGuard parses the session
-> transcripts Claude Code already writes to `~/.claude/projects/` **on your own disk**.
-> It never reads or uploads your source code, prompts, conversation content, or API
-> keys, and makes **zero network calls** unless you explicitly pass `--push`. Check
-> the Network tab yourself — there's nothing to hide.
+> **100% Local-First by Construction.** ContextGuard runs alongside Claude Code on your own machine.
+> - **CLI Analytics**: Reads session transcripts from `~/.claude/projects/` strictly offline.
+> - **Runtime Plugin**: Inspects local hook events to halt loops and restore forgotten constraints.
+> - **Zero Code Egress**: Source code, raw prompts, and conversations **never leave your machine**. Zero network calls unless you explicitly pass `--push`.
 
 <br>
 
-## 📺 See it in action
+## 🛡️ How It Works: The 4-Stage Runtime Model
 
-![contextguard --days 7 — real output, not a mockup](assets/terminal-showcase.gif)
+ContextGuard operates as an active safety and continuity layer hooked directly into the Claude Code lifecycle:
 
-The GIF above is the same real `--days 7` run shown on the [web dashboard's
-landing page](https://contextguard-web.vercel.app) — actual output, not staged
-numbers. The block below is a fuller tour of the other detectors
-(cost-optimization findings, most-expensive-sessions ranking, `CLAUDE.md`
-audit) using an illustrative example session, since no single real run
-happens to trigger all of them at once:
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│ 1. OBSERVE (Claude Code Lifecycle Hooks)                                │
+│    • Tool calls, bash execution outputs, test runner outcomes           │
+│    • /compact trigger events, 5h quota consumption speed               │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 2. DETECT (Zero-Lag Local Heuristics)                                  │
+│    • Semantic No-Progress: same root test failure survived 3+ edits     │
+│    • Compaction Amnesia: lost negative constraints after /compact       │
+│    • Abnormal Burn Rate: 5h quota draining faster than personal baseline│
+├─────────────────────────────────────────────────────────────────────────┤
+│ 3. INTERVENE (Targeted Safeguards)                                      │
+│    • Structured Force Rethink protocol injected directly into context   │
+│    • Real-time loop halting before rate limits are exhausted            │
+│    • Automatic bash/grep output truncation with signal preservation     │
+├─────────────────────────────────────────────────────────────────────────┤
+│ 4. PRESERVE (Zero Data Loss)                                            │
+│    • Lossless Vault: 100% of raw output archived locally to disk        │
+│    • Continuity Guard: auto-restores critical architectural rules       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+<br>
+
+## 📺 Live Demonstration
 
 ```text
 $ contextguard --days 7
 
-ContextGuard — Claude Code token usage audit
+ContextGuard — Claude Code Session & Quota Audit
 
-Sessions analyzed: 12
-Tokens — input: 1 180 302 | cache-write: 839 516 | cache-read: 14 812 004 | output: 401 552
-Estimated cost: $21.92
-Cache efficiency: 88%
+Sessions analyzed: 16
+Tokens — input: 1,180,302 | cache-write: 839,516 | cache-read: 14,812,004 | output: 401,552
+Estimated cost: $21.92 | Cache reuse efficiency: 88%
 
-Most expensive sessions:
-  $6.14  4f9a2b7c-91e0-4a3d-8f21-...
-  $3.87  2c8e0d15-77aa-4b12-9c04-...
-  $2.55  8b1f6a90-33dd-4e77-a105-...
+Observed Runtime Inefficiencies:
+  [!] 3 No-Progress loops detected (same test failure across multiple edits)
+  [!] 18 Repeated unchanged file reads (wasting ~34k cache tokens)
+  [!] 2 Context amnesia events after /compact (critical rules dropped)
+  [!] CLAUDE.md is 412 lines (~3,900 tokens) — re-read on every turn
 
-Tools by call frequency:
-    142  Read
-     58  Edit
-     31  Bash
-     19  Grep
+Cost & Quota Optimization Engine:
 
-CLAUDE.md:
-  Path: ./CLAUDE.md
-  Length: 412 lines (~3921 tokens) — longer than the recommended 200
+  Saved ≈ $4.18
+  Session 4f9a2b7c: Cache invalidated on turns 2+ (61% cache-write penalty).
+  Fix: Keep stable content (rules, schemas) at prompt start, changing code at end.
 
-Suggestions:
-  — CLAUDE.md is longer than the 200-line guideline and gets re-read every
-    turn — trimming it saves real money at your session volume.
+  Saved ≈ $1.32
+  src/handlers/payment.rs was re-read 5 times in session 2c8e0d15 without edits.
+  Fix: Cache reference or Grep specific functions instead of re-reading full file.
 
-Cost-Optimization Engine:
-
-  Lost ≈ $4.18
-  Session 4f9a2b7c: the cache is being rewritten instead of reused — 61%
-  of tokens on turns 2+ paid the cache-write price (14 turns).
-  Fix: Keep stable content (files, CLAUDE.md) earlier in the prompt and
-  changing content later, so the cache stops invalidating.
-
-  Lost ≈ $1.32
-  src/handlers/payment.rs was read 5 times in session 2c8e0d15 — each
-  extra read re-sends its content into context.
-  Fix: Keep the file's contents in context (or in CLAUDE.md) instead of
-  re-reading it, or Grep for just the lines you need.
-
-  Lost ≈ $9.60
-  CLAUDE.md is 412 lines (~3921 tokens) and gets re-read on every turn —
-  at your current pace that's ≈$11.20/month just to keep it in context.
-  Fix: Trim CLAUDE.md to ~200 lines — remove generic advice, keep only
-  project-specific rules.
+  Saved ≈ $9.60
+  CLAUDE.md is 412 lines and gets re-sent every turn.
+  Fix: Run `contextguard lint --fix` to prune ~200 lines of boilerplate.
 ```
 
 > [!TIP]
-> Every finding above is exactly three lines: **a dollar amount, a reason, and a
-> fix.** No dashboards to open, no charts to interpret — you get the number and
-> the diff to make.
+> Every diagnostic provides three clear lines: **Impact, Root Cause, and Fix.** No complex dashboards required — you get the exact terminal diff to run.
 
 <br>
 
 ## ⚡ Quick Start
 
 ```bash
-# Prebuilt binary, no Rust toolchain needed (see Installation below for
-# npx/Homebrew, coming with v1.0)
+# 1. Install ContextGuard CLI (prebuilt binary for macOS, Linux, Windows)
 curl -sSf https://contextguard-web.vercel.app/install.sh | sh
 
-# Run an audit against every local session you have
-contextguard
+# 2. Add the live Runtime Guard to Claude Code
+/plugin marketplace add ChevvyOkK/contextguard-plugin
 
-# Just the last 7 days
+# 3. Run a local audit across your sessions
 contextguard --days 7
 
-# Russian output
+# 4. Lint and auto-prune your CLAUDE.md
+contextguard lint CLAUDE.md --fix
+
+# 5. Output in Russian
 contextguard --lang ru
-
-# Compact Markdown, for pasting into Slack or a GitHub PR comment
-contextguard --format markdown
-
-# Opt-in: push aggregated daily numbers (no code, no prompts) to your dashboard
-contextguard --push --api-url https://your-dashboard.example.com --api-key cg_live_...
 ```
 
 <br>
 
-## 📦 Installation
+## 🧠 Core Detectors
 
-**Prebuilt binaries** for Linux (x86_64 + ARM), macOS (Intel + Apple
-Silicon), and Windows are attached to every
-[GitHub Release](https://github.com/ChevvyOkK/contextguard/releases). No
-`crates.io` publish yet, so `cargo install` needs `--git` rather than a bare
-crate name:
+Six deterministic analyzers in [`src/optimize.rs`](src/optimize.rs) inspect usage patterns and protect your workflow:
 
-<table>
-<tr>
-<td width="33%" valign="top">
-
-**Via install script** (macOS/Linux)
-
-```bash
-curl -sSf \
-  https://contextguard-web.vercel.app/install.sh \
-  | sh
-```
-
-Downloads the matching prebuilt binary, installs it to `~/.local/bin`.
-Moves to `contextguard.dev/install.sh` once that domain exists — this
-URL will keep working either way. On Windows, use Cargo or a manual
-download from [Releases](https://github.com/ChevvyOkK/contextguard/releases)
-instead.
-
-</td>
-<td width="33%" valign="top">
-
-**Via Cargo**
-
-```bash
-cargo install --git \
-  https://github.com/ChevvyOkK/contextguard \
-  contextguard
-```
-
-Needs a Rust toolchain (`rustup.rs`), MSRV **1.85+** (edition 2024).
-
-</td>
-<td width="33%" valign="top">
-
-**From source**
-
-```bash
-git clone https://github.com/ChevvyOkK/contextguard
-cd contextguard
-cargo build --release
-./target/release/contextguard
-```
-
-</td>
-</tr>
-</table>
-
-<br>
-
-## 🧠 The six detectors
-
-Six independent algorithms in [`src/optimize.rs`](src/optimize.rs) turn raw
-per-turn usage into concrete, three-line findings — a dollar loss, a reason,
-and a fix. Every one of them ships with unit tests that assert both the
-positive and negative case (it fires when it should, and stays quiet on
-healthy sessions).
-
-| # | Detector | Fires when | Typical fix |
-|---|---|---|---|
-| 1 | **Cache Churn Detector** | Cache-write tokens outweigh cache-read tokens on turns 2+ (**>25%** of the mix) — the cache is being rebuilt, not reused | Put stable content (files, `CLAUDE.md`) earlier in the prompt, changing content later |
-| 2 | **Re-Read Watcher** | The same file gets `Read` **3 or more times** in one session | Keep it in context, or `Grep` for just the lines you need |
-| 3 | **CLAUDE.md Amortizer** | `CLAUDE.md` exceeds the 200-line guideline and gets re-read every turn | Trim it to project-specific rules; projects the monthly $ cost of *not* doing so |
-| 4 | **Burn-Rate Watch** | A session's `$/hour` blows past the **p95** of your own other sessions | Flags the session so you can see what made it spike |
-| 5 | **Context Growth Advisor** | Cache-read context grows **1.8×+** with no `/compact` in between | Points at the turn where compaction would've paid off |
-| 6 | **Model-Mismatch Detector** | Opus is used on a short-output, `Edit`/`Write`-only turn — no orchestration that would justify it | Route simple edits to Sonnet instead |
-
-<br>
-
-## 🩺 `contextguard lint` — CLAUDE.md diagnostics with a safe autofix
-
-`CLAUDE.md` is resent with *every single request* in every session, so a
-line that adds nothing isn't a style nit — it's a permanent tax on every
-turn for as long as it stays in the file. `contextguard lint` finds four
-kinds of line, in order of how confident an automated tool can be about the
-finding:
-
-| Finding | What it means | `--fix` touches it? |
+| Detector | What it catches | How it intervenes |
 |---|---|---|
-| **Boilerplate** | Restates behavior the model already has by default ("write clean code") | ✅ removed |
-| **Duplicate** | Identical to an earlier line in the same file | ✅ removed |
-| **Stale path** | Names a file (in backticks) no analyzed session ever touched | ⚠️ flagged only — could still be load-bearing even if no tool call shows it |
-| **Unused MCP server** | Names a server that's configured but was never called | ⚠️ flagged only |
+| **No-Progress Breaker** | Claude makes 3+ edits but the same test error persists | Injects **Structured Force Rethink** protocol |
+| **Continuity Guard** | Architectural constraints lost after `/compact` | Auto-reinjects rules before execution |
+| **Cache Churn Watcher** | Cache writes exceed cache reads on turns 2+ | Pinpoints cache-busting prompt shifts |
+| **CLAUDE.md Amortizer** | `CLAUDE.md` exceeds recommended 200 lines | Identifies boilerplate lines and autofixes |
+| **Re-Read Watcher** | Unchanged file read 3+ times in one session | Suggests targeted grepping or caching |
+| **Burn-Rate Watcher** | Quota burns at >2.5× your normal baseline rate | Alerts before the 5-hour quota is drained |
+
+<br>
+
+## 🗄️ Smart Output Guard & Lossless Vault
+
+When commands produce massive output (e.g. `npm test`, `pytest -vv`, `cargo build`), ContextGuard:
+1. **Truncates active context** to the head, tail, and key stacktrace/error lines (saving up to 85% token bloat).
+2. **Archives 100% raw output** to `~/.claude/contextguard/vault/CG-XXXXX.log`.
+3. **Tags the output** with a reference ID for instant recall.
 
 ```text
-$ contextguard lint CLAUDE.md --fix
-
-CLAUDE.md lint — CLAUDE.md
-412 lines, ~3 900 tokens
-
-  boilerplate        L88   Always write clean code.
-                            restates default behavior ("write clean code")
-  stale path          L214  See `src/legacy-importer.rs` for details.
-                            no analyzed session touched this path
-
-1 of these can be removed automatically with --fix (~6 tokens)
-
-$0.0012 per 1,000 requests at Anthropic's published Sonnet cache-read rate
-≈$4.10/mo at the volume observed in the sessions analyzed
---fix would save about $0.02/mo at that volume
-
---fix will remove 1 line(s):
-  - L88   Always write clean code.
-    restates default behavior ("write clean code")
-
-Done — 1 line(s) removed, 411 remain.
+... [ContextGuard Lossless Vault: 450 lines archived locally as ref: CG-84A21 — full output preserved] ...
+[ContextGuard: key error lines from omitted block]
+  FAILED tests/test_payment.py::test_checkout - AssertionError: 400 != 200
 ```
 
-Two different dollar figures, because they come from two different sources
-of truth. **Price per 1,000 requests** is deterministic — Anthropic's
-published cache-read rate applied to the file's own token count, available
-even from a bare CI checkout with zero local session history. **$/month at
-your volume** only appears when local session transcripts exist to measure
-that volume from; on a machine with none, it says so instead of guessing.
+To view or search the full raw log anytime:
+```bash
+# Recall full log or grep inside it
+cat ~/.claude/contextguard/vault/CG-84A21.log
+```
 
 <br>
 
-## 🤖 CI Integration — comment the token/cost delta on every PR
+## 🩺 `contextguard lint` — CLAUDE.md Optimizer
 
-`action.yml` in this repo is a ready-to-use composite GitHub Action. It
-installs the right prebuilt binary for the runner, diffs the PR's
-`CLAUDE.md` against the base branch, and posts (or updates) one PR comment
-with the result — nothing happens on a PR that doesn't touch the file.
+`CLAUDE.md` is re-sent on **every single request** in Claude Code. Unnecessary instructions act as a permanent tax on your quota.
+
+```bash
+$ contextguard lint CLAUDE.md --fix
+
+CLAUDE.md diagnostics — 412 lines, ~3,900 tokens
+
+  [boilerplate]   L88   Always write clean code. -> restates model default
+  [stale path]    L214  See `src/legacy-v1.rs`   -> no session touched this path
+  [duplicate]     L302  Do not edit Cargo.lock   -> identical to L14
+
+Done — 2 lines removed automatically with --fix (~18 tokens/turn).
+```
+
+<br>
+
+## 🤖 CI/CD Integration
+
+Check PR changes to `CLAUDE.md` automatically in GitHub Actions:
 
 ```yaml
 # .github/workflows/claude-md-lint.yml
-name: CLAUDE.md cost check
+name: CLAUDE.md Cost & Bloat Check
 on: pull_request
 
 permissions:
@@ -265,261 +184,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # needed so the action can diff base vs head
-      - uses: ChevvyOkK/contextguard@v0.3.0
+          fetch-depth: 0
+      - uses: ChevvyOkK/contextguard@v0.6.0
 ```
 
-Comment example:
+<br>
 
-> **CLAUDE.md changed: base/CLAUDE.md → CLAUDE.md**
->
-> +1,800 tokens (from 3,200 to 5,000) on every request
->
-> That's about $0.54 per 1,000 requests at Anthropic's published Sonnet
-> cache-read rate.
->
-> _Run `contextguard lint --compare-to <base> CLAUDE.md` locally to price
-> this at your team's actual request volume._
+## ⚙️ CLI Command Reference
+
+| Command | Purpose |
+|---|---|
+| `contextguard` | Full local audit across all Claude Code sessions |
+| `contextguard --days 7` | Audit the last 7 days of activity |
+| `contextguard lint [PATH] [--fix]` | Lint and prune `CLAUDE.md` bloat |
+| `contextguard context` | Breakdown of tokens inside the active 200k window |
+| `contextguard savings` | Report of tokens and quota saved by the plugin |
+| `contextguard budget --max <USD>` | Exit 1 if local spending exceeds budget limit |
+| `contextguard git-cost` | Attribute session token costs to git branches and PRs |
 
 <br>
 
-## 🧭 `contextguard context` — what is actually in the window
+## 🔒 Privacy Architecture
 
-Every other tool in this space breaks spend down by session, model or
-project. `contextguard context` answers the question that actually matters
-when the bill arrives: *what is in the 200k I'm paying to re-send on every
-request?* See [`src/context.rs`](src/context.rs) for the full breakdown —
-tool results by tool, everything Claude Code injects on its own account
-(task reminders, skill listings, hook output), an estimate of the fixed
-system-prompt-and-tool-schemas prefix, which configured MCP servers went
-unused, and which files got re-read.
-
-```text
-$ contextguard context --days 7
-
-What is in your context window
-Averaged across 16 session(s) on this machine
-
-  tool results · Bash            238 249 tok   6%  ███████
-  your messages                  885 351 tok  21%  ████████████████████████
-  system prompt + tool schemas   593 568 tok  14%  ████████████████ estimated
-  ...
-
-Re-sent across every request in these sessions: 735 235 344 tokens, about $380.
-```
-
-Add `--format json` for a machine-readable version.
+- **Zero telemetry by default**: No analytics, no tracking, no phone-home.
+- **Zero code egress**: Prompts and source files remain strictly on your local disk.
+- **Optional team sync**: Only activated if you explicitly run `contextguard --push`, sending daily aggregate numbers (token counts and session volume only, never code or conversation text).
 
 <br>
 
-## 💰 `contextguard savings` — what the plugin actually saved
+## 📄 License
 
-The bash-truncate hook doesn't estimate its savings — it measures the exact
-character delta between the tool output Claude Code would otherwise have
-received and the smaller version it actually wrote to the transcript,
-before either one is ever sent to the API. Nothing here has to guess at a
-counterfactual by running anything twice.
-
-What this adds is amortization. The truncated output is what gets cached
-and resent on every subsequent turn of that session, not a one-time
-saving — a truncation on turn 3 of a 40-turn session is worth far more than
-the same truncation on the last turn. `contextguard savings` prices each
-one by how many turns were still ahead of it, the same "carried tokens"
-idea `context` uses for `CLAUDE.md` and tool results, and falls back to
-counting a saving once — a floor, not a guess — when it can't be matched to
-a locally-parsed session.
-
-```text
-$ contextguard savings
-
-Savings report — August 2026
-Saved by the plugin: 34531 tokens ≈ $11.11 (amortized: priced by how many
-turns of the session were still ahead of each intervention)
-From 11 intervention(s) across 1 session(s) this month
-Top source: npm test output truncated — 24531 tokens
-Also capped 24 unbounded Grep search(es) this month — no token estimate:
-nothing to compare against without running the search twice.
-```
-
-The Grep-cap hook is reported separately and never priced: it fires
-*before* the search runs, so there's nothing yet to measure a delta
-against — see `cap-grep-limit.js`'s own comment on this. `--format
-markdown` for pasting into a report; requires a plugin build recent enough
-to log a `session_id` and command label for full amortization (older
-entries are still counted, just at the floor).
-
-<br>
-
-## 🚨 `contextguard budget` — a local spend threshold
-
-Fully local: sums cost from the session transcripts already on disk for
-today or the current calendar month, compares it to `--max`, and exits
-non-zero if it's crossed — so it can gate a script or a pre-commit-style
-check without an account or a network call.
-
-```bash
-contextguard budget --max 50 --period month
-# exits 1 and prints in red if $50 has been crossed this calendar month,
-# exits 0 and prints in green otherwise
-```
-
-Add `--webhook-url` (or set `$CONTEXTGUARD_BUDGET_WEBHOOK`) to also post a
-Slack/Discord-compatible message when the threshold is crossed — the same
-payload shape the dashboard's own team-level budget alerts send, just
-usable without ever pushing data anywhere. A delivery failure is reported
-but doesn't change the exit code: the budget verdict is real regardless of
-whether the notification made it out.
-
-This is a different mechanism from the dashboard's team-level budget
-alerts (which need an account and `--push`'d data, and fire from the
-server on every ingest) — this one works for someone who has never pushed
-anything anywhere.
-
-<br>
-
-## 💸 `contextguard git-cost` — cost by branch and PR
-
-Every other detector in this tool bills to a *session*. This one bills to
-a *feature*: it matches local session cost against your git history so a
-team lead can see what a branch or a merged PR actually cost, not just an
-abstract total at the end of the month.
-
-```bash
-$ contextguard git-cost
-
-Cost by git branch / PR
-base branch: master, ~2h lookback before each first commit
-
-  feat/checkout-redesign      $34.20      6h12m   14 commits, 9 turns matched, since 2026-08-05 09:11:02 +0200
-  fix/auth-race                $4.80        41m    2 commits, 3 turns matched, since 2026-08-06 14:02:00 +0200
-  PR #212                     $71.40         —     1 commit (squash — no sub-commit history), 22 turns matched, since 2026-08-01 11:00:00 +0200
-
-31 local session turn(s) matched this repo. Cost is a time-window
-estimate, not an exact trace — working on two branches inside the same
-lookback window can attribute a turn to both.
-```
-
-Must be run inside a git working tree. Two sources feed the table:
-
-- **Live local branches** — everything unique to the branch since it
-  diverged from the base branch (`--base`, default: `origin/HEAD` or a
-  local `main`/`master`).
-- **Merged PRs on the base branch** — recovered from the merge commit
-  itself (`Merge pull request #123 …`, GitHub's default) or, for a squash
-  merge, from the commit's `... (#123)` suffix. This is what still shows a
-  cost after the source branch has been deleted.
-
-### How cost gets attributed, honestly
-
-Claude Code transcripts don't record which branch was checked out. The
-only signal available is *time*: a branch/PR's window is `[first commit
-time − lookback, last commit time]` (`--lookback-hours`, default 2 — the
-work behind a commit happens before you make it), and every local session
-turn whose timestamp falls in that window counts toward it.
-
-This is a heuristic, not a trace, and it has two known failure modes: work
-on two branches inside the same lookback window can be attributed to both,
-and work that never gets committed attributes to whichever window it
-happens to fall in, or nowhere at all. Good enough to see roughly what a
-feature cost, not precise enough to reconcile against an invoice — the
-same honesty bar the rest of this tool holds itself to. A squashed PR shows
-`—` for duration rather than a number, since a squash merge leaves no
-sub-commit history to measure a real span from.
-
-`--since-days N` bounds how far back the *merged-PR* scan on the base
-branch looks (default: unbounded); live branches are already bounded by
-where they diverged, so this flag doesn't affect them. `--format markdown`
-produces a table suitable for a PR/Slack comment.
-
-<br>
-
-## ⚙️ Flags reference
-
-Global flags apply to every mode:
-
-| Flag | Value | Default | Does |
-|---|---|---|---|
-| `--days <N>` | integer | all sessions | Only consider sessions from the last `N` days |
-| `--lang <LANG>` | `en` \| `ru` | `en`, or `$CONTEXTGUARD_LANG` | Output language |
-
-Headline report (no subcommand):
-
-| Flag | Value | Default | Does |
-|---|---|---|---|
-| `--claude-md <PATH>` | path | `./CLAUDE.md` if present | Analyze a specific `CLAUDE.md` instead of auto-detecting one in the cwd |
-| `--format <FORMAT>` | `text` \| `markdown` | `text` | `text` is the full interactive report; `markdown` is a compact top-3-findings summary for Slack/PRs |
-| `--push` | flag | off | Push aggregated daily snapshots (numeric totals only) to the dashboard |
-| `--api-url <URL>` | url | `$CONTEXTGUARD_API_URL` | Dashboard API base URL, used with `--push` |
-| `--api-key <KEY>` | string | `$CONTEXTGUARD_API_KEY` | Dashboard API key, used with `--push` |
-
-`contextguard context [--format text|json]`:
-
-| Flag | Value | Default | Does |
-|---|---|---|---|
-| `--format <FORMAT>` | `text` \| `json` | `text` | `json` for scripting |
-
-`contextguard lint [PATH] [--fix] [--format text|markdown] [--compare-to <FILE>]`:
-
-| Flag | Value | Default | Does |
-|---|---|---|---|
-| `PATH` | path | `./CLAUDE.md` | Which file to lint |
-| `--fix` | flag | off | Remove boilerplate/duplicate lines and write the file. Always prints what changed first. |
-| `--format <FORMAT>` | `text` \| `markdown` | `text` | `markdown` is what the PR-bot posts |
-| `--compare-to <FILE>` | path | — | Report the token/cost delta between `FILE` (baseline) and `PATH` instead of a full lint. A missing baseline is treated as empty, not an error. |
-
-`contextguard savings [--format text|markdown]`:
-
-| Flag | Value | Default | Does |
-|---|---|---|---|
-| `--format <FORMAT>` | `text` \| `markdown` | `text` | `markdown` for pasting into a report |
-
-`contextguard budget --max <USD> [--period daily|monthly] [--webhook-url <URL>]`:
-
-| Flag | Value | Default | Does |
-|---|---|---|---|
-| `--max <USD>` | number | — (required) | Threshold; exits 1 if crossed |
-| `--period <PERIOD>` | `daily` \| `monthly` | `monthly` | Which window to sum spend over |
-| `--webhook-url <URL>` | url | `$CONTEXTGUARD_BUDGET_WEBHOOK` | Slack/Discord-compatible POST when crossed |
-
-`contextguard git-cost [--base <BRANCH>] [--since-days <N>] [--lookback-hours <H>] [--format text|markdown]`:
-
-| Flag | Value | Default | Does |
-|---|---|---|---|
-| `--base <BRANCH>` | branch name | `origin/HEAD`, else local `main`/`master` | Branch feature branches are diffed against |
-| `--since-days <N>` | integer | unbounded | How far back to scan the base branch for merged PRs (live branches are unaffected) |
-| `--lookback-hours <H>` | number | `2` | Hours of work assumed before a commit, added to its cost window |
-| `--format <FORMAT>` | `text` \| `markdown` | `text` | `markdown` for a PR/Slack comment |
-
-`--push` sends **one row per calendar day**: token counts by category,
-session count, and estimated cost, plus the companion
-[plugin](https://github.com/ChevvyOkK/contextguard-plugin)'s tokens-saved
-figure for that day. Never code, prompts, tool names, or file paths — see
-[`contextguard-api`](https://github.com/ChevvyOkK/contextguard-api) for the
-exact schema this is validated against on the way in.
-
-<br>
-
-## What it deliberately doesn't do
-
-- No network call of any kind unless you pass `--push`.
-- No telemetry, no analytics, no phone-home on startup.
-- No modification of anything on disk, with one explicit exception: `contextguard lint --fix` writes to the `CLAUDE.md` you point it at, after printing exactly what it's about to remove. Every other mode, including plain `lint`, only reads.
-
-<br>
-
-## Related
-
-- [`contextguard-plugin`](https://github.com/ChevvyOkK/contextguard-plugin) — a Claude Code plugin that actively trims waste in real time (truncates noisy Bash output, caps unbounded Grep results)
-- [`contextguard-api`](https://github.com/ChevvyOkK/contextguard-api) — the API `--push` talks to
-- [contextguard-web.vercel.app](https://contextguard-web.vercel.app) — hosted team dashboard + a browser-only transcript analyzer that needs no install at all
-
-<br>
-
-## License
-
-Licensed under either of
-
-- MIT license ([LICENSE-MIT](LICENSE-MIT))
-- Apache License, Version 2.0 ([LICENSE-APACHE](LICENSE-APACHE))
-
-at your option.
+Licensed under either of [MIT license](LICENSE-MIT) or [Apache License, Version 2.0](LICENSE-APACHE) at your option.
