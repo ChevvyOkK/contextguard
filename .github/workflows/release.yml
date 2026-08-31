@@ -69,10 +69,26 @@ jobs:
         run: |
           Compress-Archive -Path target/${{ matrix.target }}/release/contextguard.exe -DestinationPath contextguard-${{ matrix.target }}.zip
 
+      # install.sh and install.ps1 both fetch "<asset>.sha256" and verify it
+      # before extracting — without this file they silently skip that check.
+      - name: Checksum (unix)
+        if: matrix.archive_ext == 'tar.gz'
+        shell: bash
+        run: sha256sum contextguard-${{ matrix.target }}.tar.gz > contextguard-${{ matrix.target }}.tar.gz.sha256
+
+      - name: Checksum (windows)
+        if: matrix.archive_ext == 'zip'
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Path contextguard-${{ matrix.target }}.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  contextguard-${{ matrix.target }}.zip" | Out-File -FilePath contextguard-${{ matrix.target }}.zip.sha256 -Encoding ascii -NoNewline
+
       - uses: actions/upload-artifact@v4
         with:
           name: contextguard-${{ matrix.target }}
-          path: contextguard-${{ matrix.target }}.${{ matrix.archive_ext }}
+          path: |
+            contextguard-${{ matrix.target }}.${{ matrix.archive_ext }}
+            contextguard-${{ matrix.target }}.${{ matrix.archive_ext }}.sha256
 
   release:
     needs: build
