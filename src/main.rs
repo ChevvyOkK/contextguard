@@ -2,8 +2,10 @@ mod budget;
 mod claude_md;
 mod context;
 mod discovery;
+mod evidence;
 mod git_cost;
 mod gitlog;
+mod hook;
 mod i18n;
 mod lint;
 mod optimize;
@@ -88,6 +90,17 @@ enum Command {
         #[arg(long, value_enum, default_value_t = LintFormat::Text)]
         format: LintFormat,
     },
+    /// Show recent local guard evidence events written by the runtime plugin.
+    Evidence {
+        /// Number of recent events to show. Use 0 for all events.
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+    },
+    /// Recall a local evidence event or full vaulted output by ID.
+    Recall {
+        /// Evidence event ID (CGE-...) or vault output ID (CG-...)
+        id: String,
+    },
     /// Check local spend for the period against a threshold. Fully local —
     /// no account, no --push. Exits non-zero if the threshold is crossed,
     /// so this can gate a script.
@@ -130,6 +143,14 @@ enum Command {
         /// "text" (default) or "markdown"
         #[arg(long, value_enum, default_value_t = LintFormat::Text)]
         format: LintFormat,
+    },
+    /// Native compiled hook execution for Claude Code runtime interception.
+    Hook {
+        /// Hook type (e.g. truncate-bash, cap-grep, detect-loop-pre)
+        hook_name: String,
+        /// Extra arguments
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
     },
 }
 
@@ -185,6 +206,24 @@ fn main() {
     let cli = Cli::parse();
     let lang = Lang::detect(cli.lang.as_deref());
 
+    if let Some(Command::Hook { hook_name, args }) = &cli.command {
+        if let Err(e) = hook::run_hook(hook_name, args) {
+            eprintln!("Hook error: {e}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    if let Some(Command::Evidence { limit }) = &cli.command {
+        print_evidence(*limit);
+        return;
+    }
+
+    if let Some(Command::Recall { id }) = &cli.command {
+        run_recall(id);
+        return;
+    }
+
     // Errors here (e.g. no home directory) are always fatal — every mode of
     // this tool needs to know where session files would live. An *empty*
     // result is not fatal, though: `lint` and `context` both work, on
@@ -229,6 +268,7 @@ fn main() {
             }
             return;
         }
+        Some(Command::Evidence { .. }) | Some(Command::Recall { .. }) | Some(Command::Hook { .. }) => unreachable!(),
         Some(Command::Budget { max, period, webhook_url }) => {
             let period = match period {
                 PeriodArg::Daily => budget::Period::Daily,
@@ -313,6 +353,76 @@ fn main() {
                 Ok(()) => println!("{}", i18n::push_result_line(lang, &outcome.day, true, "").green()),
                 Err(e) => println!("{}", i18n::push_result_line(lang, &outcome.day, false, &e).red()),
             }
+        }
+    }
+}
+
+fn print_evidence(limit: usize) {
+    let events = evidence::read_events(limit);
+    let path = evidence::evidence_path();
+
+    println!("{}", "ContextGuard Evidence Ledger".bold());
+    if let Some(path) = path {
+        println!("{}", format!("{}", path.display()).dimmed());
+    }
+    println!();
+
+    if events.is_empty() {
+        println!("No local evidence events found yet.");
+        println!("Runtime guards write events after Output Guard, No-Progress Guard, Continuity Guard, or Search Guard fires.");
+        return;
+    }
+
+    for event in events {
+        let event_type = event.event_type.as_deref().unwrap_or("UNKNOWN_EVENT");
+        let severity = event.severity.as_deref().unwrap_or("info");
+        let confidence = event.confidence.as_deref().unwrap_or("unknown");
+        let timestamp = event.timestamp.as_deref().unwrap_or("unknown-time");
+
+        println!(
+            "{}  {}  {}  confidence={}",
+            event.id.bold().cyan(),
+            timestamp.dimmed(),
+            event_type.bold(),
+            confidence
+        );
+        println!("  severity: {severity}");
+        if let Some(action) = event.action.as_deref() {
+            println!("  action: {action}");
+        }
+        for line in event.evidence.iter().take(3) {
+            println!("  evidence: {line}");
+        }
+        if event.evidence.len() > 3 {
+            println!("  evidence: ... {} more", event.evidence.len() - 3);
+        }
+        if let Some(exact) = event.exact_impact.as_ref() {
+            println!("  exact: {}", evidence::value_summary(exact));
+        }
+        if let Some(estimated) = event.estimated_impact.as_ref() {
+            println!("  estimated: {}", evidence::value_summary(estimated));
+        }
+        if let Some(project) = event.project.as_deref() {
+            println!("  project: {}", project.dimmed());
+        }
+        println!();
+    }
+}
+
+fn run_recall(id: &str) {
+    match evidence::recall(id) {
+        Ok(evidence::RecallResult::VaultOutput { id, path, content }) => {
+            println!("{}", format!("ContextGuard Vault Output {id}").bold());
+            println!("{}", format!("{}", path.display()).dimmed());
+            println!();
+            print!("{content}");
+        }
+        Ok(evidence::RecallResult::EventJson(json)) => {
+            println!("{json}");
+        }
+        Err(e) => {
+            eprintln!("{}", e.red());
+            std::process::exit(1);
         }
     }
 }

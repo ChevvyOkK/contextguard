@@ -3,7 +3,7 @@
 # ContextGuard
 
 **Local-first Runtime Guard & Efficiency Layer for Claude Code**  
-*Stops no-progress loops, prevents context amnesia across `/compact`, and preserves your 5-hour quota.*
+*Detects no-progress loops, preserves important context across `/compact`, and reduces avoidable Claude Code context waste.*
 
 [![CI](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml/badge.svg)](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml)
 [![Version](https://img.shields.io/badge/version-0.6.0-6366f1)](Cargo.toml)
@@ -34,16 +34,16 @@ ContextGuard operates as an active safety and continuity layer hooked directly i
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ 1. OBSERVE (Claude Code Lifecycle Hooks)                                │
 │    • Tool calls, bash execution outputs, test runner outcomes           │
-│    • /compact trigger events, 5h quota consumption speed               │
+│    • /compact trigger events and local token/cost burn patterns        │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ 2. DETECT (Zero-Lag Local Heuristics)                                  │
 │    • Semantic No-Progress: same root test failure survived 3+ edits     │
-│    • Compaction Amnesia: lost negative constraints after /compact       │
-│    • Abnormal Burn Rate: 5h quota draining faster than personal baseline│
+│    • Continuity Risk: critical CLAUDE.md constraints need re-injection  │
+│    • Abnormal Burn Rate: local sessions burning faster than history     │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ 3. INTERVENE (Targeted Safeguards)                                      │
 │    • Structured Force Rethink protocol injected directly into context   │
-│    • Real-time loop halting before rate limits are exhausted            │
+│    • Opt-in hard-stop for repeated identical calls                      │
 │    • Automatic bash/grep output truncation with signal preservation     │
 ├─────────────────────────────────────────────────────────────────────────┤
 │ 4. PRESERVE (Zero Data Loss)                                            │
@@ -118,12 +118,12 @@ Six deterministic analyzers in [`src/optimize.rs`](src/optimize.rs) inspect usag
 
 | Detector | What it catches | How it intervenes |
 |---|---|---|
-| **No-Progress Breaker** | Claude makes 3+ edits but the same test error persists | Injects **Structured Force Rethink** protocol |
-| **Continuity Guard** | Architectural constraints lost after `/compact` | Auto-reinjects rules before execution |
+| **No-Progress Breaker** | The same test failure survives multiple real edits | Injects **Structured Force Rethink** protocol |
+| **Continuity Guard** | Important CLAUDE.md constraints should survive `/compact` | Captures and re-injects rule-like constraints |
 | **Cache Churn Watcher** | Cache writes exceed cache reads on turns 2+ | Pinpoints cache-busting prompt shifts |
 | **CLAUDE.md Amortizer** | `CLAUDE.md` exceeds recommended 200 lines | Identifies boilerplate lines and autofixes |
 | **Re-Read Watcher** | Unchanged file read 3+ times in one session | Suggests targeted grepping or caching |
-| **Burn-Rate Watcher** | Quota burns at >2.5× your normal baseline rate | Alerts before the 5-hour quota is drained |
+| **Burn-Rate Watcher** | Local session cost is an outlier versus enough prior sessions | Flags the anomalous session with the comparison used |
 
 <br>
 
@@ -132,7 +132,7 @@ Six deterministic analyzers in [`src/optimize.rs`](src/optimize.rs) inspect usag
 When commands produce massive output (e.g. `npm test`, `pytest -vv`, `cargo build`), ContextGuard:
 1. **Truncates active context** to the head, tail, and key stacktrace/error lines (saving up to 85% token bloat).
 2. **Archives 100% raw output** to `~/.claude/contextguard/vault/CG-XXXXX.log`.
-3. **Tags the output** with a reference ID for instant recall.
+3. **Tags the output** with a reference ID and writes a local evidence event with exact size impact.
 
 ```text
 ... [ContextGuard Lossless Vault: 450 lines archived locally as ref: CG-84A21 — full output preserved] ...
@@ -199,6 +199,8 @@ jobs:
 | `contextguard lint [PATH] [--fix]` | Lint and prune `CLAUDE.md` bloat |
 | `contextguard context` | Breakdown of tokens inside the active 200k window |
 | `contextguard savings` | Report of tokens and quota saved by the plugin |
+| `contextguard evidence [--limit 20]` | List recent local guard evidence events |
+| `contextguard recall <event-or-vault-id>` | Print a full vaulted output or evidence event by ID |
 | `contextguard budget --max <USD>` | Exit 1 if local spending exceeds budget limit |
 | `contextguard git-cost` | Attribute session token costs to git branches and PRs |
 

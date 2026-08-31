@@ -24,3 +24,11 @@ path = "src/main.rs"
 
 [dev-dependencies]
 tempfile = "3"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+
