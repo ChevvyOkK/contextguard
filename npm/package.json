@@ -1,7 +1,7 @@
 {
   "name": "@chevvyokk/contextguard",
   "version": "0.6.0",
-  "description": "npx wrapper for the ContextGuard CLI — downloads the matching prebuilt binary from GitHub Releases and runs it. The Rust source lives in the parent directory of this repo.",
+  "description": "npx wrapper for the ContextGuard CLI — downloads the matching prebuilt binary from GitHub Releases and runs it.",
   "bin": {
     "contextguard": "bin/contextguard.js"
   },

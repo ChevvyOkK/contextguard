@@ -9,7 +9,7 @@
 > ever sees on npm is the final license rather than an MIT/Apache release
 > followed by a stricter one. Until then, `npx @chevvyokk/contextguard`
 > below won't resolve — use `curl -sSf https://contextguard-web.vercel.app/install.sh | sh`
-> or `cargo install --git` instead (see the main README).
+> instead (see the main README).
 
 ```bash
 npx @chevvyokk/contextguard
@@ -34,7 +34,7 @@ of sync with `contextguard` itself — it only ever runs the real thing.
 
 Supported today: macOS (Intel + Apple Silicon), Linux (x86_64 + ARM64),
 Windows (x86_64) — the same five targets `release.yml` cross-compiles on
-every tag. Anything else gets a clear "not supported, build from source"
+every tag. Anything else gets a clear "not supported, open an issue"
 message instead of a confusing failure.
 
 ## Releasing a new version
