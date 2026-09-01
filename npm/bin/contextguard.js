@@ -36,7 +36,7 @@ function resolveTarget() {
     fail(
       `No prebuilt contextguard binary for ${process.platform}/${process.arch}.\n` +
         `Supported: ${supported}.\n` +
-        `Build from source instead: https://github.com/ChevvyOkK/contextguard#installation`,
+        `Open an issue for this platform: https://github.com/ChevvyOkK/contextguard/issues`,
     );
   }
   return entry;
@@ -107,7 +107,7 @@ function extract(archivePath, destDir) {
   if (result.error || result.status !== 0) {
     fail(
       `Could not extract the downloaded archive${result.error ? `: ${result.error.message}` : ` (exit ${result.status})`}. ` +
-        `Building from source is a reliable fallback: https://github.com/ChevvyOkK/contextguard#installation`,
+        `Try re-running, or grab the archive directly: https://github.com/ChevvyOkK/contextguard/releases`,
     );
   }
 }
@@ -132,7 +132,7 @@ async function ensureBinary() {
   } catch (err) {
     fail(
       `Could not download ${url}: ${err.message}\n` +
-        `Check your connection, or build from source: https://github.com/ChevvyOkK/contextguard#installation`,
+        `Check your connection, or grab the archive directly: https://github.com/ChevvyOkK/contextguard/releases`,
     );
   }
 

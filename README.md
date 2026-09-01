@@ -2,18 +2,24 @@
 
 # ContextGuard
 
-**Local-first Runtime Guard & Efficiency Layer for Claude Code**  
-*Detects no-progress loops, preserves important context across `/compact`, and reduces avoidable Claude Code context waste.*
+**Local-first Runtime Guard & Efficiency Layer for Claude Code**
+*Catches no-progress loops mid-session, preserves critical context across `/compact`, and shows exactly where your Claude Code tokens go.*
 
 [![CI](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml/badge.svg)](https://github.com/ChevvyOkK/contextguard/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/badge/version-0.6.0-6366f1)](Cargo.toml)
-[![Rust MSRV](https://img.shields.io/badge/rust-1.85%2B-orange?logo=rust)](Cargo.toml)
-[![License: MIT OR Apache--2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue)](#license)
-[![i18n](https://img.shields.io/badge/i18n-EN%20%7C%20RU-informational)](src/i18n.rs)
+[![Latest Release](https://img.shields.io/github/v/release/ChevvyOkK/contextguard?color=6366f1)](https://github.com/ChevvyOkK/contextguard/releases/latest)
+[![License](https://img.shields.io/badge/license-MIT%20%2F%20Apache--2.0-blue)](#-license)
+[![i18n](https://img.shields.io/badge/i18n-EN%20%7C%20RU-informational)](#)
 [![GitHub Stars](https://img.shields.io/github/stars/ChevvyOkK/contextguard?style=social)](https://github.com/ChevvyOkK/contextguard/stargazers)
 
-[Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Detectors](#-the-six-detectors) · [Lossless Vault](#-smart-output-guard--lossless-vault) · [CLAUDE.md Lint](#-claudemd-diagnostics) · [Web Dashboard](https://contextguard-web.vercel.app)
+[Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Detectors](#-the-six-detectors) · [Pro & Web Dashboard](#-pro--web-dashboard) · [Website](https://contextguard-web.vercel.app)
 
+</div>
+
+<br>
+
+<div align="center">
+  <img src="assets/dashboard-demo.gif" alt="ContextGuard web dashboard: the Loop Guard // Evidence panel walking through Observing, Loop Pattern, Intervention, and Stabilized states" width="100%">
+  <sub>The live <a href="https://contextguard-web.vercel.app">web dashboard</a> demo — same detection logic the CLI and runtime plugin run locally.</sub>
 </div>
 
 <br>
@@ -26,7 +32,7 @@
 
 <br>
 
-## 🛡️ How It Works: The 4-Stage Runtime Model
+## 🛡️ How It Works
 
 ContextGuard operates as an active safety and continuity layer hooked directly into the Claude Code lifecycle:
 
@@ -112,9 +118,9 @@ contextguard --lang ru
 
 <br>
 
-## 🧠 Core Detectors
+## 🧠 The Six Detectors
 
-Six deterministic analyzers in [`src/optimize.rs`](src/optimize.rs) inspect usage patterns and protect your workflow:
+Deterministic analyzers inspect usage patterns and protect your workflow — no LLM calls, no telemetry, just local heuristics:
 
 | Detector | What it catches | How it intervenes |
 |---|---|---|
@@ -140,9 +146,8 @@ When commands produce massive output (e.g. `npm test`, `pytest -vv`, `cargo buil
   FAILED tests/test_payment.py::test_checkout - AssertionError: 400 != 200
 ```
 
-To view or search the full raw log anytime:
 ```bash
-# Recall full log or grep inside it
+# Recall the full raw log anytime
 cat ~/.claude/contextguard/vault/CG-84A21.log
 ```
 
@@ -206,6 +211,20 @@ jobs:
 
 <br>
 
+## 🚀 Pro & Web Dashboard
+
+Everything above runs fully offline, for free, forever. **ContextGuard Pro** adds an opt-in layer on top:
+
+- **Web Dashboard** — team-visible view of aggregate spend, cache efficiency, and CLAUDE.md health across projects.
+- **Telegram Remote Control** — pair a session to a Telegram chat and keep an eye on a long-running Claude Code task from your phone.
+- **Budget Alerts** — get notified before a session runs away with your quota.
+
+No code, prompts, or transcripts are ever uploaded as part of Pro — only the aggregate numbers you can already see in `contextguard savings`.
+
+**[→ See plans on the website](https://contextguard-web.vercel.app/pricing)**
+
+<br>
+
 ## 🔒 Privacy Architecture
 
 - **Zero telemetry by default**: No analytics, no tracking, no phone-home.
@@ -216,4 +235,6 @@ jobs:
 
 ## 📄 License
 
-Licensed under either of [MIT license](LICENSE-MIT) or [Apache License, Version 2.0](LICENSE-APACHE) at your option.
+Releases through v0.6.0 are dual-licensed under either the [MIT license](LICENSE-MIT) or [Apache License, Version 2.0](LICENSE-APACHE), at your option — those terms stand and aren't retroactively revoked.
+
+Development of the CLI has since moved to a private repository; this repo is now the public distribution point (releases, install scripts, GitHub Action, npm wrapper) and product homepage.
