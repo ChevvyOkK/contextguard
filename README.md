@@ -19,7 +19,7 @@
 
 <div align="center">
   <img src="assets/dashboard-demo.gif" alt="ContextGuard web dashboard: the Loop Guard // Evidence panel walking through Observing, Loop Pattern, Intervention, and Stabilized states" width="100%">
-  <sub>The live <a href="https://contextguard-web.vercel.app">web dashboard</a> demo — same detection logic the CLI and runtime plugin run locally.</sub>
+  <sub>The live <a href="https://contextguard.tech">web dashboard</a> demo — same detection logic the CLI and runtime plugin run locally.</sub>
 </div>
 
 <br>
@@ -221,7 +221,7 @@ Everything above runs fully offline, for free, forever. **ContextGuard Pro** add
 
 No code, prompts, or transcripts are ever uploaded as part of Pro — only the aggregate numbers you can already see in `contextguard savings`.
 
-**[→ See plans on the website](https://contextguard-web.vercel.app/pricing)**
+**[→ See plans on the website](https://contextguard.tech/#pricing)**
 
 <br>
 
