@@ -88,7 +88,28 @@ runs:
 
         work="${{ steps.extract.outputs.dir }}"
         curl -sSfL "$url" -o "$work/$asset"
+        curl -sSfL "$url.sha256" -o "$work/$asset.sha256"
         cd "$work"
+
+        # release.yml publishes a "<hash>  <asset>" sidecar for every
+        # binary — verify it before extracting anything downloaded over
+        # the network, the same way install.sh/install.ps1 already do.
+        case "$RUNNER_OS" in
+          Windows)
+            expected="$(cut -d' ' -f1 "$asset.sha256" | tr -d '\r\n')"
+            actual="$(powershell.exe -NoProfile -NonInteractive -Command \
+              "(Get-FileHash -Path '$asset' -Algorithm SHA256).Hash.ToLower()" | tr -d '\r\n')"
+            ;;
+          *)
+            expected="$(cut -d' ' -f1 "$asset.sha256" | tr -d '\r\n')"
+            actual="$(sha256sum "$asset" | cut -d' ' -f1)"
+            ;;
+        esac
+        if [ "$expected" != "$actual" ]; then
+          echo "::error::Checksum mismatch for $asset — expected $expected, got $actual. Refusing to run a binary that doesn't match its published release checksum." >&2
+          exit 1
+        fi
+
         case "$asset" in
           *.tar.gz) tar xzf "$asset" ;;
           *.zip) unzip -oq "$asset" ;;

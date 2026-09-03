@@ -14,6 +14,7 @@ const os = require("os");
 const path = require("path");
 const { spawnSync } = require("child_process");
 const https = require("https");
+const crypto = require("crypto");
 
 const PKG = require("../package.json");
 const VERSION = PKG.version;
@@ -86,6 +87,40 @@ function download(url, destPath, redirectsLeft = 5) {
   });
 }
 
+function sha256File(filePath) {
+  return crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+}
+
+// sha256sum's own output format is "<hash>  <filename>" — release.yml's
+// Windows leg writes the same shape by hand to match. Only the hash matters
+// here; the filename half is for humans running `sha256sum -c` directly.
+function parseSha256Sidecar(text) {
+  return text.trim().split(/\s+/)[0].toLowerCase();
+}
+
+// release.yml publishes that sidecar next to every archive — fetch it and
+// refuse to extract anything that doesn't match, the same way
+// install.sh/install.ps1 already do for the shell installer.
+async function verifyChecksum(archivePath, assetUrl) {
+  const sidecarPath = `${archivePath}.sha256`;
+  try {
+    await download(`${assetUrl}.sha256`, sidecarPath);
+  } catch (err) {
+    fail(`Could not download ${assetUrl}.sha256: ${err.message}\n` + `Refusing to run an unverified binary.`);
+  }
+
+  const expected = parseSha256Sidecar(fs.readFileSync(sidecarPath, "utf8"));
+  const actual = sha256File(archivePath);
+  fs.rmSync(sidecarPath, { force: true });
+
+  if (expected !== actual) {
+    fail(
+      `Checksum mismatch for ${path.basename(archivePath)}: expected ${expected}, got ${actual}.\n` +
+        `Refusing to run a binary that doesn't match its published release checksum.`,
+    );
+  }
+}
+
 function extract(archivePath, destDir) {
   // Windows' own System32\tar.exe (bsdtar, 1803+) auto-detects .zip too —
   // but a developer running this via Git Bash, WSL-adjacent tooling, or
@@ -136,6 +171,7 @@ async function ensureBinary() {
     );
   }
 
+  await verifyChecksum(archivePath, url);
   extract(archivePath, dir);
   fs.rmSync(archivePath, { force: true });
 
@@ -164,7 +200,7 @@ async function main() {
 if (require.main === module) {
   main();
 } else {
-  module.exports = { TARGETS, resolveTarget: resolveTargetForTest };
+  module.exports = { TARGETS, resolveTarget: resolveTargetForTest, parseSha256Sidecar, sha256File };
 }
 
 // resolveTarget() above calls fail() -> process.exit() on a miss, which

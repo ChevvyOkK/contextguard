@@ -10,7 +10,10 @@
 
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { TARGETS, resolveTarget } = require("./contextguard.js");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const { TARGETS, resolveTarget, parseSha256Sidecar, sha256File } = require("./contextguard.js");
 
 // The exact 5 combinations release.yml's build matrix produces — verified
 // against a real release (`gh release view v0.6.0 --json assets`), not
@@ -52,6 +55,28 @@ test("resolveTarget returns undefined for an unsupported platform/arch instead o
   assert.equal(resolveTarget("freebsd", "x64"), undefined);
   assert.equal(resolveTarget("win32", "arm64"), undefined);
   assert.equal(resolveTarget("linux", "ia32"), undefined);
+});
+
+test("parseSha256Sidecar reads the hash out of a real sha256sum-style line", () => {
+  assert.equal(
+    parseSha256Sidecar("a3c2...deadbeef  contextguard-x86_64-unknown-linux-gnu.tar.gz\n"),
+    "a3c2...deadbeef",
+  );
+});
+
+test("parseSha256Sidecar lowercases and trims, matching Get-FileHash's uppercase-hex output on Windows", () => {
+  assert.equal(parseSha256Sidecar("  DEADBEEF  contextguard-x86_64-pc-windows-msvc.zip"), "deadbeef");
+});
+
+test("sha256File matches a hash computed independently for known content", () => {
+  // "abc" -> the textbook SHA-256 test vector (FIPS 180-2, appendix B.1).
+  const tmp = path.join(os.tmpdir(), `contextguard-sha256-test-${process.pid}`);
+  fs.writeFileSync(tmp, "abc");
+  try {
+    assert.equal(sha256File(tmp), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+  } finally {
+    fs.rmSync(tmp, { force: true });
+  }
 });
 
 test("package.json's os/cpu restriction fields agree with what TARGETS actually supports", () => {
