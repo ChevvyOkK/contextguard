@@ -11,7 +11,7 @@
 [![i18n](https://img.shields.io/badge/i18n-EN%20%7C%20RU-informational)](#)
 [![GitHub Stars](https://img.shields.io/github/stars/ChevvyOkK/contextguard?style=social)](https://github.com/ChevvyOkK/contextguard/stargazers)
 
-[Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Detectors](#-the-six-detectors) · [Pro & Web Dashboard](#-pro--web-dashboard) · [Website](https://contextguard-web.vercel.app)
+[Quick Start](#-quick-start) · [How It Works](#-how-it-works) · [Detectors](#-the-six-detectors) · [Pro & Web Dashboard](#-pro--web-dashboard) · [Website](https://contextguard.tech)
 
 </div>
 
@@ -100,8 +100,11 @@ Cost & Quota Optimization Engine:
 ## ⚡ Quick Start
 
 ```bash
-# 1. Install ContextGuard CLI (prebuilt binary for macOS, Linux, Windows)
-curl -sSf https://contextguard-web.vercel.app/install.sh | sh
+# 1. Install ContextGuard CLI (prebuilt binary — macOS, Linux)
+curl -sSf https://contextguard.tech/install.sh | sh
+
+# 1. Windows (PowerShell) — same install, no Git Bash/WSL needed
+irm https://contextguard.tech/install.ps1 | iex
 
 # 2. Add the live Runtime Guard to Claude Code
 /plugin marketplace add ChevvyOkK/contextguard-plugin

@@ -8,7 +8,7 @@
 > CLI's move to a source-available license, so the first thing anyone
 > ever sees on npm is the final license rather than an MIT/Apache release
 > followed by a stricter one. Until then, `npx @chevvyokk/contextguard`
-> below won't resolve — use `curl -sSf https://contextguard-web.vercel.app/install.sh | sh`
+> below won't resolve — use `curl -sSf https://contextguard.tech/install.sh | sh`
 > instead (see the main README).
 
 ```bash
